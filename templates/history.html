@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Call History</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+
+<div class="container mt-5">
+    <div class="card shadow-lg p-4">
+        <h2 class="mb-4">📊 Call History</h2>
+
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>Customer ID</th>
+                    <th>Rating</th>
+                    <th>Recommendation</th>
+                    <th>Suggestion</th>
+                    <th>Sentiment</th>
+                    <th>Recording</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for f in feedbacks %}
+                <tr>
+                    <td>{{ f.customer_id }}</td>
+                    <td>{{ f.rating }}</td>
+                    <td>{{ f.recommendation }}</td>
+                    <td>{{ f.suggestion }}</td>
+                    <td>
+                        {% if f.sentiment == "Positive" %}
+                            <span class="badge bg-success">Positive</span>
+                        {% elif f.sentiment == "Negative" %}
+                            <span class="badge bg-danger">Negative</span>
+                        {% else %}
+                            <span class="badge bg-secondary">Neutral</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if f.recording_path %}
+                        <audio controls>
+                            <source src="/{{ f.recording_path }}" type="audio/wav">
+                        </audio>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <a href="/" class="btn btn-primary">Back to Dashboard</a>
+    </div>
+</div>
+
+</body>
+</html>
