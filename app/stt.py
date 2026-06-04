@@ -1,54 +1,44 @@
-import sounddevice as sd
-from scipy.io.wavfile import write
-import whisper
-import uuid
 import os
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from faster_whisper import WhisperModel
 
-model = None
+# Initialize the model out-of-band so it loads into memory only once
+# Uses 'cuda' if an NVIDIA GPU is present, otherwise falls back to 'cpu'
+# 'int8' quantization slashes RAM usage while keeping execution fast
+try:
+    MODEL_SIZE = "base"
+    print(f"Initializing local Speech-to-Text engine ({MODEL_SIZE})...")
+    stt_model = WhisperModel(MODEL_SIZE, device="auto", compute_type="int8")
+    print("STT Engine initialized successfully.")
+except Exception as e:
+    print(f"Error initializing local STT model: {e}")
+    stt_model = None
 
-def get_model():
-    global model
-    if model is None:
-        print("Loading Whisper model...")
-        model = whisper.load_model("base")
-    return model
+# Thread pool execution to prevent blocking FastAPI's main async event loop
+executor = ThreadPoolExecutor(max_workers=4)
 
-RECORDINGS_DIR = "recordings"
+def _sync_transcribe(audio_path: str) -> str:
+    """Synchronous core execution for faster-whisper."""
+    if not stt_model:
+        return "[STT Error: Model not loaded]"
+    
+    if not os.path.exists(audio_path):
+        return ""
 
+    segments, info = stt_model.transcribe(audio_path, beam_size=5)
+    text_segments = [segment.text for segment in segments]
+    return " ".join(text_segments).strip()
 
-def record_audio(duration=5):
-    fs = 44100
-
-    print("=== Recording Started ===")
-
-    device_index = 9  # <-- IMPORTANT (your mic)
-
-    recording = sd.rec(
-        int(duration * fs),
-        samplerate=fs,
-        channels=1,
-        dtype='float32',
-        device=device_index
-    )
-
-    sd.wait()
-
-    print("=== Recording Finished ===")
-
-    filename = f"{uuid.uuid4()}.wav"
-    filepath = os.path.join(RECORDINGS_DIR, filename)
-
-    write(filepath, fs, recording)
-
-    print("Saved:", filepath)
-
-    return filepath
-
-
-def transcribe_audio(filepath):
-    print("Transcribing...")
-    model = get_model()
-    result = model.transcribe(filepath)
-    text = result["text"]
-    print("Customer:", text)
-    return text
+async def transcribe_audio(audio_path: str) -> str:
+    """
+    Asynchronously transcribes a local audio file (.wav/.mp3).
+    Integrates directly with call_engine.py processing pipelines.
+    """
+    loop = asyncio.get_running_loop()
+    try:
+        text = await loop.run_in_executor(executor, _sync_transcribe, audio_path)
+        return text
+    except Exception as e:
+        print(f"Transcription execution error: {e}")
+        return ""
