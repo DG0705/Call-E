@@ -8,6 +8,7 @@ import pyttsx3
 # Local imports
 from .stt import transcribe_audio
 from .sentiment import analyze_sentiment
+from .llm import async_generate_llm_response  # <-- NEW: Importing Groq Cloud LLM
 
 # Ensure recordings directory exists
 RECORDINGS_DIR = "recordings"
@@ -40,21 +41,6 @@ async def async_record_audio(duration=5) -> str:
     write(filepath, fs, recording)
     return filepath
 
-def generate_keyword_response(user_text: str) -> str:
-    """Zero-RAM Intelligent Keyword Router"""
-    text = user_text.lower()
-    
-    if "refund" in text or "money" in text:
-        return "I can help with a refund. Could you provide your order number?"
-    elif "password" in text or "login" in text:
-        return "I can send a password reset link to your phone. Should I do that now?"
-    elif "human" in text or "agent" in text:
-        return "Transferring you to a human agent now. Please hold."
-    elif len(text) < 3 or text == "you" or text == "thank you":
-        return "I didn't quite catch that. Could you repeat?"
-    
-    return "I want to make sure I resolve this. Could you provide a bit more detail?"
-
 async def run_support_call(customer_name: str = "Customer"):
     call_active = True
     turn_count = 0
@@ -74,14 +60,12 @@ async def run_support_call(customer_name: str = "Customer"):
         # A. Listen
         audio_in_path = await async_record_audio(duration=5)
         
-        # B. Transcribe
+        # B. Transcribe locally
         user_text = await transcribe_audio(audio_in_path)
         print(f"[👤 Customer]: {user_text}")
         
         if not user_text.strip():
             continue
-            
-        conversation_history.append({"role": "user", "text": user_text})
 
         # C. Sentiment Check
         sentiment = analyze_sentiment(user_text)
@@ -89,20 +73,25 @@ async def run_support_call(customer_name: str = "Customer"):
             frustration_strikes += 1
             print(f"[⚠️ System]: Negative sentiment detected. Strike {frustration_strikes}/2")
         
-        if frustration_strikes >= 2 or "human" in user_text.lower():
+        if frustration_strikes >= 2 or "human" in user_text.lower() or "agent" in user_text.lower():
             escalation_msg = "I realize this is frustrating. Let me transfer you directly to a human support agent."
             print(f"[🤖 Call-E ESCALATING]: {escalation_msg}")
             text_to_speech(escalation_msg)
+            conversation_history.append({"role": "user", "text": user_text})
             conversation_history.append({"role": "system", "action": "ESCALATED_TO_HUMAN"})
             break
 
-        # D. Respond
-        bot_response = generate_keyword_response(user_text)
+        # D. Respond via Groq Cloud LLM
+        # We pass the conversation history down so Llama-3 remembers the context of the call
+        bot_response = await async_generate_llm_response(user_text, conversation_history)
         print(f"[🤖 Call-E]: {bot_response}")
         text_to_speech(bot_response)
+        
+        # E. Update the history array with the newest turn
+        conversation_history.append({"role": "user", "text": user_text})
         conversation_history.append({"role": "bot", "text": bot_response})
         
-        if "transferring" in bot_response.lower():
+        if "transferring" in bot_response.lower() or "transfer" in bot_response.lower():
             call_active = False
 
     print("\n[📞 Call Ended]")
