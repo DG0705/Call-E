@@ -4,9 +4,13 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 import logging
 
-# Local imports from our asynchronous architecture
+# Local imports
 from app.call_engine import run_support_call
-from app.database import save_call_log
+from app.database import save_call_log, engine
+from app import models
+
+# Generate SQLite tables on startup if they don't exist
+models.Base.metadata.create_all(bind=engine)
 
 # Setup internal logger
 logger = logging.getLogger("calle_main")
@@ -17,27 +21,26 @@ app = FastAPI(
     version="1.1"
 )
 
-# Initialize templates folder for our eventual frontend dashboard integration
+# Initialize templates folder
 templates = Jinja2Templates(directory="templates")
 
-# Pydantic schema for strict inbound validation (mimicking incoming webhooks)
+# Pydantic schema for strict inbound validation
 class CallRequest(BaseModel):
     customer_name: str = "Customer"
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    """
-    Health dashboard route.
-    Later, frontend will fetch data from MongoDB to populate this.
-    """
-    return templates.TemplateResponse("index.html", {"request": request, "customers": []})
+    """Health dashboard route."""
+    return templates.TemplateResponse(
+        request=request, 
+        name="index.html", 
+        context={"customers": []}
+    )
 
 @app.post("/start_call")
 async def start_call(request: CallRequest):
     """
-    Task 4 Core Endpoint (Fixed for MongoDB ObjectId Serialization):
-    Triggers the autonomous voice agent, runs the conversation loop,
-    and streams the structured payload safely to MongoDB.
+    Triggers the autonomous voice agent and saves to SQLite.
     """
     try:
         logger.info(f"Initiating autonomous support session for: {request.customer_name}")
@@ -45,26 +48,24 @@ async def start_call(request: CallRequest):
         # 1. Execute the async voice state machine loop
         call_summary = await run_support_call(customer_name=request.customer_name)
         
-        # 2. Enrich payload with caller profile metrics
-        call_summary["customer_name"] = request.customer_name
-        
-        # 3. Stream data asynchronously to local MongoDB instance
-        inserted_id = await save_call_log(call_summary)
-        
-        # FIX: MongoDB adds a native '_id' of type ObjectId to the dict. 
-        # Convert it to a plain string so FastAPI can serialize it back to the web browser.
-        if "_id" in call_summary:
-            call_summary["_id"] = str(call_summary["_id"])
+        # 2. Extract metrics and save to SQLite
+        inserted_id = await save_call_log(
+            customer_name=request.customer_name,
+            status=call_summary["status"],
+            final_sentiment=call_summary["final_sentiment"],
+            turns=call_summary["turns"],
+            transcript=call_summary["history"]
+        )
         
         if inserted_id:
-            logger.info(f"Session data successfully saved to MongoDB cluster. Document ID: {inserted_id}")
+            logger.info(f"Session data successfully saved to SQLite. Record ID: {inserted_id}")
+            call_summary["database_id"] = inserted_id
         else:
-            logger.warning("Voice loop finished, but MongoDB save operation failed.")
+            logger.warning("Voice loop finished, but SQLite save operation failed.")
             
         return {
             "status": "success",
-            "message": "Call completed and successfully persisted in MongoDB.",
-            "document_id": inserted_id,
+            "message": "Call completed and successfully persisted in database.",
             "summary": call_summary
         }
         

@@ -55,8 +55,8 @@ def text_to_speech(text, output_audio_path, lang="en"):
 # ==========================================
 if __name__ == "__main__":
     # Define your paths
-    sample_input_audio = r"C:\Users\mgjad\Documents\Sound Recordings\Recording.mp3"  # Replace with a real audio path to test STT
-    sample_output_audio = r"C:\Users\mgjad\Documents\output_speech.mp3"
+    sample_input_audio = r"C:\Users\ASHOKA-PC\Downloads\Recording.mp3"  # Replace with a real audio path to test STT
+    sample_output_audio = r"C:\Users\ASHOKA-PC\Downloads\output_speech.mp3"
     
     # --- Example 1: Run Speech-to-Text ---
     # Create a dummy file check so the script doesn't crash if you don't have an audio file ready

@@ -1,6 +1,6 @@
-from sqlalchemy import Column, Integer, String, Text
+from sqlalchemy import Column, Integer, String, Text, DateTime
+from datetime import datetime
 from .database import Base
-
 
 class Customer(Base):
     __tablename__ = "customers"
@@ -22,3 +22,21 @@ class Feedback(Base):
     suggestion = Column(Text)
     sentiment = Column(String)
     recording_path = Column(String)
+
+
+
+class CallRecord(Base):
+    __tablename__ = "call_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_name = Column(String(100), default="Unknown Customer")
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    status = Column(String(50))            # e.g., "Resolved", "Escalated"
+    final_sentiment = Column(String(50))   # e.g., "Positive", "Negative", "Neutral"
+    turns = Column(Integer, default=0)
+    
+    # Store complete dialogue JSON history directly as text
+    transcript_json = Column(Text, nullable=True) 
+
+    def __repr__(self):
+        return f"<CallRecord id={self.id} customer={self.customer_name} status={self.status}>"

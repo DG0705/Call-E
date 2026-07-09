@@ -1,49 +1,65 @@
 import os
-import logging
-from motor.motor_asyncio import AsyncIOMotorClient
-from datetime import datetime, timezone
+import json
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from datetime import datetime
 
-# Setup clean internal logging for tracking db updates
-logger = logging.getLogger("calle_db")
-logging.basicConfig(level=logging.INFO)
+# Define path for local SQLite database file
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATABASE_URL = f"sqlite:///{os.path.join(BASE_DIR, 'call_e.db')}"
 
-# Default to local MongoDB port; easily changed to a cloud Atlas URI later via environment variables
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+# Create the SQLite engine
+engine = create_engine(
+    DATABASE_URL, 
+    connect_args={"check_same_thread": False}  # Required for SQLite in multi-threaded contexts
+)
 
-try:
-    logger.info("Connecting to local MongoDB cluster...")
-    client = AsyncIOMotorClient(MONGO_URI)
-    
-    # Establish our core database and collections
-    db = client.calle_core
-    calls_collection = db.support_calls
-    logger.info("MongoDB Connection Interface initialized successfully.")
-except Exception as e:
-    logger.error(f"Critical failure initializing MongoDB connection: {e}")
-    client = None
-    db = None
-    calls_collection = None
+# Create a configured Session class
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-async def save_call_log(call_data: dict) -> str:
-    """
-    Asynchronously injects metadata and saves the full structural 
-    call summary dictionary directly into the NoSQL cluster.
-    """
-    if calls_collection is None:
-        logger.error("Database collection is offline. Cannot save record.")
-        return None
+# Base class for our database models
+Base = declarative_base()
 
+def get_db():
+    """Dependency provider to yield database sessions per request."""
+    db = SessionLocal()
     try:
-        # Enforce exact UTC timestamp generation for accurate chronological indexing
-        call_data["timestamp"] = datetime.now(timezone.utc)
+        yield db
+    finally:
+        db.close()
+
+# --- ADD THIS FUNCTION TO RESOLVE THE IMPORT ERROR ---
+async def save_call_log(customer_name: str, status: str, final_sentiment: str, turns: int, transcript: list):
+    """
+    Saves a complete call log record into the SQLite database.
+    This replaces the old MongoDB implementation seamlessly.
+    """
+    # Import locally inside the function to avoid circular dependency issues
+    from .models import CallRecord
+    
+    db = SessionLocal()
+    try:
+        # Convert transcript list/dict to a JSON string for storage in Text column
+        transcript_str = json.dumps(transcript) if isinstance(transcript, (list, dict)) else str(transcript)
         
-        # Asynchronously stream the data payload straight to MongoDB
-        result = await calls_collection.insert_one(call_data)
+        record = CallRecord(
+            customer_name=customer_name or "Unknown Customer",
+            timestamp=datetime.utcnow(),
+            status=status,
+            final_sentiment=final_sentiment,
+            turns=turns,
+            transcript_json=transcript_str
+        )
         
-        inserted_id = str(result.inserted_id)
-        logger.info(f"Successfully logged conversation data. Record ID: {inserted_id}")
-        return inserted_id
-        
+        db.add(record)
+        db.commit()
+        db.refresh(record)
+        print(f"💾 [Database] Successfully logged call ID {record.id} for {customer_name}")
+        return record.id
     except Exception as e:
-        logger.error(f"Database insertion crash occurred: {e}")
+        db.rollback()
+        print(f"❌ [Database Error] Failed to save call log: {e}")
         return None
+    finally:
+        db.close()

@@ -51,9 +51,9 @@ async def async_generate_llm_response(user_text: str, conversation_history: list
         # Execute the async call to Groq using the Llama 3 8B model
         chat_completion = await client.chat.completions.create(
             messages=messages,
-            model="llama3-8b-8192",
-            temperature=0.5, # Keep it relatively deterministic and focused
-            max_tokens=60,   # Force short responses
+            model="llama-3.3-70b-versatile", # <-- UPGRADED MODEL
+            temperature=0.5, 
+            max_tokens=150,   # <-- INCREASED TO PREVENT ABORTS
         )
         
         reply = chat_completion.choices[0].message.content.strip()
