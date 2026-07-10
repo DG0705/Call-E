@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+/* This tells Tailwind v4 to trigger dark mode when next-themes adds the 'dark' class */
+@custom-variant dark (&:is(.dark *));
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.9%;
+  }
+  .dark {
+    --background: 0 0% 3.9%;
+    --foreground: 0 0% 98%;
+  }
+}
