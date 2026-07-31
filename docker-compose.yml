@@ -1,45 +1,190 @@
+name: call-e
+
+x-fastapi-service: &fastapi-service
+  restart: unless-stopped
+  environment:
+    MONGODB_URL: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongodb:27017/?authSource=admin
+    RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/
+  depends_on:
+    mongodb:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+  networks:
+    - call-e-network
+  healthcheck:
+    test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/health")
+    interval: 10s
+    timeout: 3s
+    retries: 5
+    start_period: 15s
+
 services:
+  traefik:
+    image: traefik:v3.2
+    restart: unless-stopped
+    command:
+      - --api.dashboard=${TRAEFIK_DASHBOARD:-true}
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.traefik.address=:8080
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.traefik.rule: PathPrefix(`/api`) || PathPrefix(`/dashboard`)
+      traefik.http.routers.traefik.service: api@internal
+      traefik.http.routers.traefik.entrypoints: traefik
+    networks:
+      - call-e-network
+
+  mongodb:
+    image: mongo:8
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --username "$$MONGO_INITDB_ROOT_USERNAME"
+          --password "$$MONGO_INITDB_ROOT_PASSWORD"
+          --authenticationDatabase admin
+          --eval "db.adminCommand('ping').ok" | grep 1
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - call-e-network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    ports:
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - call-e-network
+
   api-gateway:
+    <<: *fastapi-service
     build: ./services/api-gateway
-    ports:
-      - "8000:8000"
-  call-orchestrator:
-    build: ./services/call-orchestrator
-    ports:
-      - "8001:8000"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.api-gateway.rule: PathPrefix(`/api-gateway`)
+      traefik.http.routers.api-gateway.middlewares: api-gateway-strip
+      traefik.http.middlewares.api-gateway-strip.stripprefix.prefixes: /api-gateway
+
   auth-service:
+    <<: *fastapi-service
     build: ./services/auth-service
-    ports:
-      - "8002:8000"
-  contacts-service:
-    build: ./services/contacts-service
-    ports:
-      - "8003:8000"
-  campaign-service:
-    build: ./services/campaign-service
-    ports:
-      - "8004:8000"
-  voice-service:
-    build: ./services/voice-service
-    ports:
-      - "8005:8000"
-  transcription-service:
-    build: ./services/transcription-service
-    ports:
-      - "8006:8000"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.auth-service.rule: PathPrefix(`/auth-service`)
+      traefik.http.routers.auth-service.middlewares: auth-service-strip
+      traefik.http.middlewares.auth-service-strip.stripprefix.prefixes: /auth-service
+
   ai-service:
+    <<: *fastapi-service
     build: ./services/ai-service
-    ports:
-      - "8007:8000"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.ai-service.rule: PathPrefix(`/ai-service`)
+      traefik.http.routers.ai-service.middlewares: ai-service-strip
+      traefik.http.middlewares.ai-service-strip.stripprefix.prefixes: /ai-service
+
+  voice-service:
+    <<: *fastapi-service
+    build: ./services/voice-service
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.voice-service.rule: PathPrefix(`/voice-service`)
+      traefik.http.routers.voice-service.middlewares: voice-service-strip
+      traefik.http.middlewares.voice-service-strip.stripprefix.prefixes: /voice-service
+
+  call-service:
+    <<: *fastapi-service
+    build: ./services/call-service
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.call-service.rule: PathPrefix(`/call-service`)
+      traefik.http.routers.call-service.middlewares: call-service-strip
+      traefik.http.middlewares.call-service-strip.stripprefix.prefixes: /call-service
+
+  tool-service:
+    <<: *fastapi-service
+    build: ./services/tool-service
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.tool-service.rule: PathPrefix(`/tool-service`)
+      traefik.http.routers.tool-service.middlewares: tool-service-strip
+      traefik.http.middlewares.tool-service-strip.stripprefix.prefixes: /tool-service
+
+  knowledge-service:
+    <<: *fastapi-service
+    build: ./services/knowledge-service
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.knowledge-service.rule: PathPrefix(`/knowledge-service`)
+      traefik.http.routers.knowledge-service.middlewares: knowledge-service-strip
+      traefik.http.middlewares.knowledge-service-strip.stripprefix.prefixes: /knowledge-service
+
   analytics-service:
+    <<: *fastapi-service
     build: ./services/analytics-service
-    ports:
-      - "8008:8000"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.analytics-service.rule: PathPrefix(`/analytics-service`)
+      traefik.http.routers.analytics-service.middlewares: analytics-service-strip
+      traefik.http.middlewares.analytics-service-strip.stripprefix.prefixes: /analytics-service
+
   notification-service:
+    <<: *fastapi-service
     build: ./services/notification-service
-    ports:
-      - "8009:8000"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.notification-service.rule: PathPrefix(`/notification-service`)
+      traefik.http.routers.notification-service.middlewares: notification-service-strip
+      traefik.http.middlewares.notification-service-strip.stripprefix.prefixes: /notification-service
+
+  agent-service:
+    <<: *fastapi-service
+    build: ./services/agent-service
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.agent-service.rule: PathPrefix(`/agent-service`)
+      traefik.http.routers.agent-service.middlewares: agent-service-strip
+      traefik.http.middlewares.agent-service-strip.stripprefix.prefixes: /agent-service
 
 networks:
-  default:
-    name: call-e
+  call-e-network:
+    name: call-e-network
+    driver: bridge
+
+volumes:
+  mongodb-data:
+    name: call-e-mongodb-data
+  rabbitmq-data:
+    name: call-e-rabbitmq-data

@@ -1,27 +1,100 @@
 # Call-E
 
-Call-E is a Python 3.13 microservice monorepo managed with [uv](https://docs.astral.sh/uv/).
+Call-E is a Python 3.13 microservice monorepo managed with [uv](https://docs.astral.sh/uv/). The local platform stack uses Docker Compose, Traefik, MongoDB, and RabbitMQ. The services are deliberately logic-free foundations for future development.
 
-## Services
+## Prerequisites
 
-| Service | Responsibility |
+- Docker Desktop 4.30+ with Docker Compose v2
+- Docker Engine configured to run Linux containers
+- uv and Python 3.13, only for running services outside Docker
+
+## Setup
+
+Create the local runtime environment file and set non-empty local credentials:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Update these values in `.env`:
+
+```dotenv
+MONGO_INITDB_ROOT_USERNAME=call_e_admin
+MONGO_INITDB_ROOT_PASSWORD=use-a-strong-local-password
+RABBITMQ_DEFAULT_USER=call_e
+RABBITMQ_DEFAULT_PASS=use-a-strong-local-password
+TRAEFIK_DASHBOARD=true
+```
+
+The `.env` file is ignored by Git. Do not commit credentials.
+
+## Running locally
+
+```powershell
+docker compose up --build
+```
+
+Compose creates the `call-e-network` bridge network and persistent MongoDB and RabbitMQ volumes. All FastAPI services wait for MongoDB and RabbitMQ to pass their health checks before starting.
+
+Stop the stack while retaining data:
+
+```powershell
+docker compose down
+```
+
+Remove the stack and its local data volumes:
+
+```powershell
+docker compose down --volumes
+```
+
+View service status or logs:
+
+```powershell
+docker compose ps
+docker compose logs -f api-gateway
+```
+
+## Routes
+
+Traefik is the public entry point on port 80. A route prefix is stripped before it reaches each FastAPI application, so the health endpoint follows this pattern:
+
+| Service | Health URL |
 | --- | --- |
-| api-gateway | Public API entry point |
-| call-orchestrator | Call workflow coordination |
-| auth-service | Authentication and authorization |
-| contacts-service | Contact management |
-| campaign-service | Campaign management |
-| voice-service | Voice synthesis boundary |
-| transcription-service | Speech transcription boundary |
-| ai-service | AI provider boundary |
-| analytics-service | Analytics boundary |
-| notification-service | Notification delivery boundary |
+| API Gateway | http://localhost/api-gateway/health |
+| Auth | http://localhost/auth-service/health |
+| AI | http://localhost/ai-service/health |
+| Voice | http://localhost/voice-service/health |
+| Call | http://localhost/call-service/health |
+| Tool | http://localhost/tool-service/health |
+| Knowledge | http://localhost/knowledge-service/health |
+| Analytics | http://localhost/analytics-service/health |
+| Notification | http://localhost/notification-service/health |
+| Agent | http://localhost/agent-service/health |
 
-Each service has the same layout:
+Each service also serves `/health` inside the Docker network at `http://<service-name>:8000/health`.
+
+## Operations UIs
+
+- Traefik dashboard: http://localhost:8080/dashboard/
+- RabbitMQ management UI: http://localhost:15672/ (use `RABBITMQ_DEFAULT_USER` and `RABBITMQ_DEFAULT_PASS`)
+
+## MongoDB
+
+MongoDB is intentionally not published to the host. Other containers connect using:
+
+```text
+mongodb://<MONGO_INITDB_ROOT_USERNAME>:<MONGO_INITDB_ROOT_PASSWORD>@mongodb:27017/?authSource=admin
+```
+
+Its data persists in the `call-e-mongodb-data` Docker volume. RabbitMQ data persists in `call-e-rabbitmq-data`.
+
+## Repository layout
 
 ```text
 services/<service>/
 ├── .env.example
+├── .dockerignore
 ├── Dockerfile
 ├── pyproject.toml
 ├── src/<service_package>/
@@ -31,29 +104,4 @@ services/<service>/
     └── __init__.py
 ```
 
-## Quick start
-
-```powershell
-uv sync --all-packages
-uv run --package call-e-api-gateway uvicorn api_gateway.main:app --reload
-```
-
-The health endpoint is available at `GET /health`.
-
-## Docker
-
-Build a service from its own directory:
-
-```powershell
-docker build -t call-e-api-gateway ./services/api-gateway
-docker run --rm -p 8000:8000 call-e-api-gateway
-```
-
-Use `docker compose up --build` to start all service placeholders.
-
-## Development
-
-- Copy each `.env.example` to `.env` before adding service configuration.
-- Keep business logic inside the service that owns its boundary.
-- Add dependencies to the owning service's `pyproject.toml`.
-
+Every service image uses a multi-stage build: uv resolves dependencies in the builder stage and a small Python 3.13 slim runtime runs the application as an unprivileged user.
