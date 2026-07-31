@@ -1,0 +1,45 @@
+services:
+  api-gateway:
+    build: ./services/api-gateway
+    ports:
+      - "8000:8000"
+  call-orchestrator:
+    build: ./services/call-orchestrator
+    ports:
+      - "8001:8000"
+  auth-service:
+    build: ./services/auth-service
+    ports:
+      - "8002:8000"
+  contacts-service:
+    build: ./services/contacts-service
+    ports:
+      - "8003:8000"
+  campaign-service:
+    build: ./services/campaign-service
+    ports:
+      - "8004:8000"
+  voice-service:
+    build: ./services/voice-service
+    ports:
+      - "8005:8000"
+  transcription-service:
+    build: ./services/transcription-service
+    ports:
+      - "8006:8000"
+  ai-service:
+    build: ./services/ai-service
+    ports:
+      - "8007:8000"
+  analytics-service:
+    build: ./services/analytics-service
+    ports:
+      - "8008:8000"
+  notification-service:
+    build: ./services/notification-service
+    ports:
+      - "8009:8000"
+
+networks:
+  default:
+    name: call-e

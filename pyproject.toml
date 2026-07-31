@@ -1,0 +1,14 @@
+[project]
+name = "call-e"
+version = "0.1.0"
+description = "Call-E microservice monorepo"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
+
+[tool.uv.workspace]
+members = ["services/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["services"]
+

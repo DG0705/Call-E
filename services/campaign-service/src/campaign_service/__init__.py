@@ -1,0 +1,2 @@
+"""campaign-service service package."""
+
