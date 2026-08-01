@@ -84,6 +84,8 @@ Each service also serves `/health` inside the Docker network at `http://<service
 The auth-service foundation is available at
 `http://localhost/api/v1/auth/status`. It reports only platform readiness;
 authentication workflows are intentionally not implemented.
+The shared `AuthContext` value object provides a minimal future boundary for
+authenticated subjects and sessions without implementing authentication.
 
 ## Operations UIs
 
