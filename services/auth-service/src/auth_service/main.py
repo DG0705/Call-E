@@ -1,6 +1,6 @@
-"""FastAPI application for the auth-service service."""
+"""Auth service ASGI entrypoint."""
 
-from call_e_shared import create_app
+from auth_service.app import create_auth_app
 
 
-app = create_app("auth-service")
+app = create_auth_app()

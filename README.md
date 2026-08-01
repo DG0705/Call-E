@@ -81,6 +81,10 @@ Traefik is the public entry point on port 80. A route prefix is stripped before 
 
 Each service also serves `/health` inside the Docker network at `http://<service-name>:8000/health`.
 
+The auth-service foundation is available at
+`http://localhost/api/v1/auth/status`. It reports only platform readiness;
+authentication workflows are intentionally not implemented.
+
 ## Operations UIs
 
 - Traefik dashboard: http://localhost:8080/dashboard/
