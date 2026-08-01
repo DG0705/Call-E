@@ -44,8 +44,11 @@ def create_app(service_name: str) -> FastAPI:
     app.add_middleware(RequestIDMiddleware)
 
     @app.get(HEALTH_PATH, response_model=HealthResponse, tags=["platform"])
-    async def health() -> HealthResponse:
-        return build_health_response(settings)
+    async def health(request: Request) -> HealthResponse:
+        return build_health_response(
+            settings,
+            request_id=getattr(request.state, "request_id", None),
+        )
 
     @app.exception_handler(PlatformError)
     async def handle_platform_error(

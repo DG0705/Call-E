@@ -33,3 +33,4 @@ class HealthResponse(BaseModel):
 
     status: str = Field(default="healthy")
     service: str
+    request_id: str | None = None
