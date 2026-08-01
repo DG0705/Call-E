@@ -1,0 +1,31 @@
+from fastapi.testclient import TestClient
+
+from api_gateway.app import create_gateway_app
+
+
+def test_gateway_health_returns_shared_response_shape() -> None:
+    client = TestClient(create_gateway_app())
+
+    response = client.get("/health", headers={"X-Request-ID": "health-request"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "healthy",
+        "service": "api-gateway",
+        "request_id": "health-request",
+    }
+    assert response.headers["X-Request-ID"] == "health-request"
+
+
+def test_gateway_status_exposes_public_platform_route() -> None:
+    client = TestClient(create_gateway_app())
+
+    response = client.get("/api/v1/status", headers={"X-Request-ID": "status-request"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "healthy",
+        "service": "api-gateway",
+        "request_id": "status-request",
+    }
+    assert response.headers["X-Request-ID"] == "status-request"

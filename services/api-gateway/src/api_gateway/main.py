@@ -1,6 +1,6 @@
-"""FastAPI application for the api-gateway service."""
+"""API Gateway ASGI entrypoint."""
 
-from call_e_shared import create_app
+from api_gateway.app import create_gateway_app
 
 
-app = create_app("api-gateway")
+app = create_gateway_app()

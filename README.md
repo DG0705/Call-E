@@ -61,7 +61,7 @@ Traefik is the public entry point on port 80. A route prefix is stripped before 
 
 | Service | Health URL |
 | --- | --- |
-| API Gateway | http://localhost/api-gateway/health |
+| API Gateway | http://localhost/health |
 | Auth | http://localhost/auth-service/health |
 | AI | http://localhost/ai-service/health |
 | Voice | http://localhost/voice-service/health |

@@ -98,11 +98,10 @@ services:
     build:
       context: .
       dockerfile: services/api-gateway/Dockerfile
-    labels:
-      traefik.enable: "true"
-      traefik.http.routers.api-gateway.rule: PathPrefix(`/api-gateway`)
-      traefik.http.routers.api-gateway.middlewares: api-gateway-strip
-      traefik.http.middlewares.api-gateway-strip.stripprefix.prefixes: /api-gateway
+      labels:
+        traefik.enable: "true"
+        traefik.http.routers.api-gateway.rule: PathPrefix(`/api/v1`) || Path(`/health`)
+        traefik.http.routers.api-gateway.priority: "100"
 
   auth-service:
     <<: *fastapi-service
