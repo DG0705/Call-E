@@ -2,6 +2,9 @@
 
 Call-E is a Python 3.13 microservice monorepo managed with [uv](https://docs.astral.sh/uv/). The local platform stack uses Docker Compose, Traefik, MongoDB, and RabbitMQ. The services are deliberately logic-free foundations for future development and import shared primitives from the workspace-owned `call-e-shared` package.
 
+The shared package also provides a stable versioned JSON response helper used
+by the API Gateway public routes: `/api/v1/status` and `/api/v1/info`.
+
 ## Prerequisites
 
 - Docker Desktop 4.30+ with Docker Compose v2
