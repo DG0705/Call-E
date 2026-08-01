@@ -1,0 +1,9 @@
+"""Shared platform constants."""
+
+HEALTH_PATH = "/health"
+REQUEST_ID_HEADER = "X-Request-ID"
+DEFAULT_LOG_LEVEL = "INFO"
+DEFAULT_ENVIRONMENT = "development"
+SERVICE_NAME_ENV_VAR = "SERVICE_NAME"
+APP_ENV_ENV_VAR = "APP_ENV"
+LOG_LEVEL_ENV_VAR = "LOG_LEVEL"

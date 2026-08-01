@@ -1,13 +1,7 @@
 """FastAPI application for the call-service service."""
 
-from fastapi import FastAPI
+from call_e_shared import create_app, load_settings
 
 
-app = FastAPI(title="call-service")
-
-
-@app.get("/health")
-async def health() -> dict[str, str]:
-    """Return the service health status."""
-    return {"status": "healthy", "service": "call-service"}
-
+settings = load_settings(default_service_name="call-service")
+app = create_app(settings)

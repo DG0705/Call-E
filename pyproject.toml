@@ -7,8 +7,13 @@ requires-python = ">=3.13"
 dependencies = []
 
 [tool.uv.workspace]
-members = ["services/*"]
+members = ["shared", "services/*"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27.0",
+    "pytest>=8.0.0",
+]
 
 [tool.pytest.ini_options]
-testpaths = ["services"]
-
+testpaths = ["shared/tests", "services"]

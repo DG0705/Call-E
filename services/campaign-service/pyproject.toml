@@ -4,9 +4,13 @@ version = "0.1.0"
 description = "Call-E campaign-service service"
 requires-python = ">=3.13"
 dependencies = [
+    "call-e-shared",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
 ]
+
+[tool.uv.sources]
+call-e-shared = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -14,4 +18,3 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/campaign_service"]
-

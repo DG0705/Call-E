@@ -1,10 +1,12 @@
 name: call-e
 
+x-fastapi-environment: &fastapi-environment
+  MONGODB_URL: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongodb:27017/?authSource=admin
+  RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/
+
 x-fastapi-service: &fastapi-service
   restart: unless-stopped
-  environment:
-    MONGODB_URL: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongodb:27017/?authSource=admin
-    RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq:5672/
+  environment: *fastapi-environment
   depends_on:
     mongodb:
       condition: service_healthy
@@ -90,7 +92,12 @@ services:
 
   api-gateway:
     <<: *fastapi-service
-    build: ./services/api-gateway
+    environment:
+      <<: *fastapi-environment
+      SERVICE_NAME: api-gateway
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
     labels:
       traefik.enable: "true"
       traefik.http.routers.api-gateway.rule: PathPrefix(`/api-gateway`)
@@ -99,7 +106,12 @@ services:
 
   auth-service:
     <<: *fastapi-service
-    build: ./services/auth-service
+    environment:
+      <<: *fastapi-environment
+      SERVICE_NAME: auth-service
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
     labels:
       traefik.enable: "true"
       traefik.http.routers.auth-service.rule: PathPrefix(`/auth-service`)
@@ -108,7 +120,12 @@ services:
 
   ai-service:
     <<: *fastapi-service
-    build: ./services/ai-service
+    environment:
+      <<: *fastapi-environment
+      SERVICE_NAME: ai-service
+    build:
+      context: .
+      dockerfile: services/ai-service/Dockerfile
     labels:
       traefik.enable: "true"
       traefik.http.routers.ai-service.rule: PathPrefix(`/ai-service`)
@@ -117,7 +134,12 @@ services:
 
   voice-service:
     <<: *fastapi-service
-    build: ./services/voice-service
+    environment:
+      <<: *fastapi-environment
+      SERVICE_NAME: voice-service
+    build:
+      context: .
+      dockerfile: services/voice-service/Dockerfile
     labels:
       traefik.enable: "true"
       traefik.http.routers.voice-service.rule: PathPrefix(`/voice-service`)
@@ -126,7 +148,12 @@ services:
 
   call-service:
     <<: *fastapi-service
-    build: ./services/call-service
+    environment:
+      <<: *fastapi-environment
+      SERVICE_NAME: call-service
+    build:
+      context: .
+      dockerfile: services/call-service/Dockerfile
     labels:
       traefik.enable: "true"
       traefik.http.routers.call-service.rule: PathPrefix(`/call-service`)
@@ -135,7 +162,12 @@ services:
 
   tool-service:
     <<: *fastapi-service
-    build: ./services/tool-service
+    environment:
+      <<: *fastapi-environment
+      SERVICE_NAME: tool-service
+    build:
+      context: .
+      dockerfile: services/tool-service/Dockerfile
     labels:
       traefik.enable: "true"
       traefik.http.routers.tool-service.rule: PathPrefix(`/tool-service`)
@@ -144,7 +176,12 @@ services:
 
   knowledge-service:
     <<: *fastapi-service
-    build: ./services/knowledge-service
+    environment:
+      <<: *fastapi-environment
+      SERVICE_NAME: knowledge-service
+    build:
+      context: .
+      dockerfile: services/knowledge-service/Dockerfile
     labels:
       traefik.enable: "true"
       traefik.http.routers.knowledge-service.rule: PathPrefix(`/knowledge-service`)
@@ -153,7 +190,12 @@ services:
 
   analytics-service:
     <<: *fastapi-service
-    build: ./services/analytics-service
+    environment:
+      <<: *fastapi-environment
+      SERVICE_NAME: analytics-service
+    build:
+      context: .
+      dockerfile: services/analytics-service/Dockerfile
     labels:
       traefik.enable: "true"
       traefik.http.routers.analytics-service.rule: PathPrefix(`/analytics-service`)
@@ -162,7 +204,12 @@ services:
 
   notification-service:
     <<: *fastapi-service
-    build: ./services/notification-service
+    environment:
+      <<: *fastapi-environment
+      SERVICE_NAME: notification-service
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
     labels:
       traefik.enable: "true"
       traefik.http.routers.notification-service.rule: PathPrefix(`/notification-service`)
@@ -171,7 +218,12 @@ services:
 
   agent-service:
     <<: *fastapi-service
-    build: ./services/agent-service
+    environment:
+      <<: *fastapi-environment
+      SERVICE_NAME: agent-service
+    build:
+      context: .
+      dockerfile: services/agent-service/Dockerfile
     labels:
       traefik.enable: "true"
       traefik.http.routers.agent-service.rule: PathPrefix(`/agent-service`)

@@ -10,11 +10,14 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-COPY pyproject.toml README.md ./
-RUN uv sync --no-dev --no-install-project
+COPY pyproject.toml ./
+COPY shared/pyproject.toml shared/README.md ./shared/
+COPY services/analytics-service/pyproject.toml services/analytics-service/README.md ./services/analytics-service/
+RUN uv sync --no-dev --package call-e-analytics-service --no-install-project
 
-COPY src ./src
-RUN uv sync --no-dev
+COPY shared/src ./shared/src
+COPY services/analytics-service/src ./services/analytics-service/src
+RUN uv sync --no-dev --package call-e-analytics-service
 
 FROM python:3.13-slim AS runtime
 
@@ -27,7 +30,8 @@ RUN groupadd --system app && useradd --system --gid app --home /app app
 WORKDIR /app
 
 COPY --from=builder --chown=app:app /app/.venv ./.venv
-COPY --from=builder --chown=app:app /app/src ./src
+COPY --from=builder --chown=app:app /app/shared/src ./shared/src
+COPY --from=builder --chown=app:app /app/services/analytics-service/src ./services/analytics-service/src
 
 USER app
 
