@@ -25,7 +25,8 @@ def test_gateway_status_exposes_public_platform_route() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "healthy",
-        "service": "api-gateway",
+        "service_name": "api-gateway",
         "request_id": "status-request",
+        "version": "v1",
     }
     assert response.headers["X-Request-ID"] == "status-request"
