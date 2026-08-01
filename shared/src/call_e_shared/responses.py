@@ -2,7 +2,7 @@
 
 from typing import Generic, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 DataT = TypeVar("DataT")
 
@@ -26,14 +26,6 @@ class ErrorResponse(BaseModel):
     """Envelope for API errors."""
 
     error: ErrorDetail
-
-
-class HealthResponse(BaseModel):
-    """Standard service health response."""
-
-    status: str = Field(default="healthy")
-    service: str
-    request_id: str | None = None
 
 
 class PlatformResponse(BaseModel):

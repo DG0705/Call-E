@@ -8,7 +8,8 @@ routes and currently exposes:
 - `GET /api/v1/info`
 - `GET /api/v1/ping`
 
-When running through Docker Compose, call the routes through Traefik:
+All public routes use the shared versioned platform response helper. When
+running through Docker Compose, call the routes through Traefik:
 
 ```text
 http://localhost/health

@@ -11,7 +11,8 @@ def test_gateway_health_returns_shared_response_shape() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "healthy",
-        "service": "api-gateway",
+        "service_name": "api-gateway",
+        "version": "v1",
         "request_id": "health-request",
     }
     assert response.headers["X-Request-ID"] == "health-request"

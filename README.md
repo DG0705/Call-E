@@ -6,6 +6,9 @@ The shared package also provides a stable versioned JSON response helper used
 by the API Gateway public routes: `/api/v1/status`, `/api/v1/info`, and
 `/api/v1/ping`.
 
+The shared response helper is also used by the shared health route, keeping all
+public API Gateway responses on one stable JSON contract.
+
 ## Prerequisites
 
 - Docker Desktop 4.30+ with Docker Compose v2

@@ -9,5 +9,6 @@ def test_health_response_contains_service_name_and_request_id() -> None:
     )
 
     assert response.status == "healthy"
-    assert response.service == "test-service"
+    assert response.service_name == "test-service"
+    assert response.version == "v1"
     assert response.request_id == "request-123"

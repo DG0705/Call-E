@@ -16,7 +16,7 @@ from call_e_shared.request_id import (
     reset_request_id,
     set_request_id,
 )
-from call_e_shared.responses import HealthResponse
+from call_e_shared.responses import PlatformResponse
 
 RequestHandler = Callable[[Request], Awaitable[Response]]
 
@@ -43,8 +43,13 @@ def create_app(service_name: str) -> FastAPI:
     app = FastAPI(title=settings.service_name)
     app.add_middleware(RequestIDMiddleware)
 
-    @app.get(HEALTH_PATH, response_model=HealthResponse, tags=["platform"])
-    async def health(request: Request) -> HealthResponse:
+    @app.get(
+        HEALTH_PATH,
+        response_model=PlatformResponse,
+        response_model_exclude_none=True,
+        tags=["platform"],
+    )
+    async def health(request: Request) -> PlatformResponse:
         return build_health_response(
             settings,
             request_id=getattr(request.state, "request_id", None),

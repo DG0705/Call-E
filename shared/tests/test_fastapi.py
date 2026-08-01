@@ -18,7 +18,8 @@ def test_health_propagates_request_id() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "healthy",
-        "service": "test-service",
+        "service_name": "test-service",
+        "version": "v1",
         "request_id": "request-123",
     }
     assert response.headers["X-Request-ID"] == "request-123"
