@@ -1,18 +1,21 @@
 """Reusable FastAPI application support."""
 
 from collections.abc import Awaitable, Callable
-from uuid import uuid4
-
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-from call_e_shared.config import ServiceSettings
+from call_e_shared.config import load_settings
 from call_e_shared.constants import HEALTH_PATH, REQUEST_ID_HEADER
 from call_e_shared.exceptions import PlatformError, error_response
 from call_e_shared.health import build_health_response
-from call_e_shared.logging import configure_logging, request_id_context
+from call_e_shared.logging import configure_logging
+from call_e_shared.request_id import (
+    create_request_id,
+    reset_request_id,
+    set_request_id,
+)
 from call_e_shared.responses import HealthResponse
 
 RequestHandler = Callable[[Request], Awaitable[Response]]
@@ -22,20 +25,21 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     """Attach a request identifier to every request and response."""
 
     async def dispatch(self, request: Request, call_next: RequestHandler) -> Response:
-        request_id = request.headers.get(REQUEST_ID_HEADER) or str(uuid4())
+        request_id = request.headers.get(REQUEST_ID_HEADER) or create_request_id()
         request.state.request_id = request_id
-        token = request_id_context.set(request_id)
+        token = set_request_id(request_id)
         try:
             response = await call_next(request)
         finally:
-            request_id_context.reset(token)
+            reset_request_id(token)
         response.headers[REQUEST_ID_HEADER] = request_id
         return response
 
 
-def create_app(settings: ServiceSettings) -> FastAPI:
+def create_app(service_name: str) -> FastAPI:
     """Create a consistent FastAPI service shell."""
-    configure_logging(level=settings.log_level, logger_name=settings.service_name)
+    settings = load_settings(default_service_name=service_name)
+    configure_logging(service_name=settings.service_name, level=settings.log_level)
     app = FastAPI(title=settings.service_name)
     app.add_middleware(RequestIDMiddleware)
 

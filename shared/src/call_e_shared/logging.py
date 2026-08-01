@@ -2,40 +2,45 @@
 
 import json
 import logging
-from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
 
-request_id_context: ContextVar[str | None] = ContextVar(
-    "request_id", default=None
-)
+from call_e_shared.constants import DEFAULT_LOG_LEVEL
+from call_e_shared.request_id import get_request_id
 
 
 class JSONFormatter(logging.Formatter):
     """Render log records as compact structured JSON."""
+
+    def __init__(self, *, service_name: str) -> None:
+        super().__init__()
+        self.service_name = service_name
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
+            "service": self.service_name,
             "message": record.getMessage(),
-            "request_id": request_id_context.get(),
+            "request_id": get_request_id(),
         }
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(payload, default=str)
 
 
-def configure_logging(*, level: str, logger_name: str = "call_e") -> logging.Logger:
+def configure_logging(
+    *, service_name: str, level: str = DEFAULT_LOG_LEVEL
+) -> logging.Logger:
     """Configure and return an idempotent structured logger."""
-    logger = logging.getLogger(logger_name)
+    logger = logging.getLogger(f"call_e.{service_name}")
     logger.setLevel(level)
     logger.propagate = False
 
     if not logger.handlers:
         handler = logging.StreamHandler()
-        handler.setFormatter(JSONFormatter())
+        handler.setFormatter(JSONFormatter(service_name=service_name))
         logger.addHandler(handler)
 
     return logger

@@ -1,7 +1,6 @@
 """FastAPI application for the knowledge-service service."""
 
-from call_e_shared import create_app, load_settings
+from call_e_shared import create_app
 
 
-settings = load_settings(default_service_name="knowledge-service")
-app = create_app(settings)
+app = create_app("knowledge-service")
