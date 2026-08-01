@@ -30,3 +30,19 @@ def test_gateway_status_exposes_public_platform_route() -> None:
         "version": "v1",
     }
     assert response.headers["X-Request-ID"] == "status-request"
+
+
+def test_gateway_info_exposes_stable_public_metadata() -> None:
+    client = TestClient(create_gateway_app())
+
+    response = client.get("/api/v1/info", headers={"X-Request-ID": "info-request"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "service_name": "api-gateway",
+        "status": "healthy",
+        "request_id": "info-request",
+        "version": "v1",
+        "description": "Call-E public API Gateway",
+    }
+    assert response.headers["X-Request-ID"] == "info-request"
