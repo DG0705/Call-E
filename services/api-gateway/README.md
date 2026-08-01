@@ -6,6 +6,7 @@ routes and currently exposes:
 - `GET /health`
 - `GET /api/v1/status`
 - `GET /api/v1/info`
+- `GET /api/v1/ping`
 
 When running through Docker Compose, call the routes through Traefik:
 
@@ -13,6 +14,7 @@ When running through Docker Compose, call the routes through Traefik:
 http://localhost/health
 http://localhost/api/v1/status
 http://localhost/api/v1/info
+http://localhost/api/v1/ping
 ```
 
 Run locally with:

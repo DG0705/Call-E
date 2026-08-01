@@ -46,3 +46,18 @@ def test_gateway_info_exposes_stable_public_metadata() -> None:
         "description": "Call-E public API Gateway",
     }
     assert response.headers["X-Request-ID"] == "info-request"
+
+
+def test_gateway_ping_exposes_compact_uptime_response() -> None:
+    client = TestClient(create_gateway_app())
+
+    response = client.get("/api/v1/ping", headers={"X-Request-ID": "ping-request"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "service_name": "api-gateway",
+        "status": "ok",
+        "version": "v1",
+        "request_id": "ping-request",
+    }
+    assert response.headers["X-Request-ID"] == "ping-request"
