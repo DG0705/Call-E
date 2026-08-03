@@ -230,6 +230,8 @@ services:
       traefik.http.routers.agent-service.rule: PathPrefix(`/agent-service`)
       traefik.http.routers.agent-service.middlewares: agent-service-strip
       traefik.http.middlewares.agent-service-strip.stripprefix.prefixes: /agent-service
+      traefik.http.routers.agent-core.rule: PathPrefix(`/api/v1/tenants`) || PathPrefix(`/api/v1/agents`)
+      traefik.http.routers.agent-core.priority: "110"
 
 networks:
   call-e-network:

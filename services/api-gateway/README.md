@@ -23,3 +23,11 @@ Run locally with:
 ```powershell
 uv run uvicorn api_gateway.main:app --reload
 ```
+# Core routes
+
+Tenant and agent core routes are exposed by Traefik directly to the agent service:
+
+- `GET /api/v1/tenants/status`
+- `GET /api/v1/tenants/ping-db`
+- `GET /api/v1/agents/status`
+- `GET /api/v1/agents/ping-db`

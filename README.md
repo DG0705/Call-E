@@ -87,6 +87,12 @@ authentication workflows are intentionally not implemented.
 The shared `AuthContext` value object provides a minimal future boundary for
 authenticated subjects and sessions without implementing authentication.
 
+The first read-only platform core routes are available through Traefik at
+`/api/v1/tenants/status`, `/api/v1/tenants/ping-db`,
+`/api/v1/agents/status`, and `/api/v1/agents/ping-db`. They expose only
+tenant and agent collection connectivity; no workflows or mutations are
+implemented.
+
 ## Operations UIs
 
 - Traefik dashboard: http://localhost:8080/dashboard/

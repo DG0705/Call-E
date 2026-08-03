@@ -1,6 +1,6 @@
-"""FastAPI application for the agent-service service."""
+"""Agent service ASGI entrypoint."""
 
-from call_e_shared import create_app
+from agent_service.app import create_agent_app
 
 
-app = create_app("agent-service")
+app = create_agent_app()
