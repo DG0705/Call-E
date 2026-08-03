@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Request
 
-from agent_service.repositories import AgentRepository, TenantRepository
+from agent_service.services import AgentService, TenantService
 from call_e_shared import PlatformResponse, build_platform_response
 from call_e_shared.exceptions import PlatformError
 
@@ -23,9 +23,9 @@ def _response(request: Request, description: str) -> PlatformResponse:
     )
 
 
-async def _ping_collection(repository: TenantRepository | AgentRepository) -> None:
+async def _ping_collection(service: TenantService | AgentService) -> None:
     try:
-        await repository.collection_exists()
+        await service.collection_exists()
     except Exception as exc:
         raise PlatformError(
             code="core_database_unavailable",
@@ -43,7 +43,7 @@ async def tenant_status(request: Request) -> PlatformResponse:
 @router.get("/api/v1/tenants/ping-db", response_model=PlatformResponse, response_model_exclude_none=True)
 async def ping_tenant_database(request: Request) -> PlatformResponse:
     """Verify tenant collection access without mutating data."""
-    await _ping_collection(request.app.state.tenant_repository)
+    await _ping_collection(request.app.state.tenant_service)
     return _response(request, TENANT_DATABASE_DESCRIPTION)
 
 
@@ -56,5 +56,5 @@ async def agent_status(request: Request) -> PlatformResponse:
 @router.get("/api/v1/agents/ping-db", response_model=PlatformResponse, response_model_exclude_none=True)
 async def ping_agent_database(request: Request) -> PlatformResponse:
     """Verify agent collection access without mutating data."""
-    await _ping_collection(request.app.state.agent_repository)
+    await _ping_collection(request.app.state.agent_service)
     return _response(request, AGENT_DATABASE_DESCRIPTION)

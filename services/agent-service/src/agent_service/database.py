@@ -5,6 +5,7 @@ import os
 from pymongo import AsyncMongoClient
 
 from agent_service.repositories import AgentRepository, TenantRepository
+from agent_service.services import AgentService, TenantService
 
 
 DEFAULT_CORE_DATABASE = "call_e_core"
@@ -18,8 +19,8 @@ class CoreDatabase:
     def __init__(self, *, mongodb_url: str, database_name: str) -> None:
         self._client = AsyncMongoClient(mongodb_url, serverSelectionTimeoutMS=1_000)
         database = self._client[database_name]
-        self.tenants = TenantRepository(database)
-        self.agents = AgentRepository(database)
+        self.tenant_service = TenantService(TenantRepository(database))
+        self.agent_service = AgentService(AgentRepository(database))
 
     async def close(self) -> None:
         """Release the MongoDB client during application shutdown."""

@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from agent_service.app import create_agent_app
 from agent_service.models import AGENTS_COLLECTION, TENANTS_COLLECTION, Agent, Tenant
 from agent_service.repositories import AgentRepository, TenantRepository
+from agent_service.services import AgentService, TenantService
 
 
 class FakeCoreDatabase:
@@ -50,11 +51,11 @@ def test_agent_model_links_to_a_tenant() -> None:
     assert agent.status == "active"
 
 
-def test_repositories_check_only_their_collection() -> None:
+def test_repositories_and_services_check_only_their_collection() -> None:
     database = FakeCoreDatabase([TENANTS_COLLECTION, AGENTS_COLLECTION])
 
-    assert asyncio.run(TenantRepository(database).collection_exists()) is True
-    assert asyncio.run(AgentRepository(database).collection_exists()) is True
+    assert asyncio.run(TenantService(TenantRepository(database)).collection_exists()) is True
+    assert asyncio.run(AgentService(AgentRepository(database)).collection_exists()) is True
     assert database.filters == [
         {"name": TENANTS_COLLECTION},
         {"name": AGENTS_COLLECTION},
@@ -65,8 +66,8 @@ def test_tenant_status_propagates_request_id() -> None:
     database = FakeCoreDatabase([TENANTS_COLLECTION, AGENTS_COLLECTION])
     client = TestClient(
         create_agent_app(
-            tenant_repository=TenantRepository(database),
-            agent_repository=AgentRepository(database),
+            tenant_service=TenantService(TenantRepository(database)),
+            agent_service=AgentService(AgentRepository(database)),
         )
     )
 
@@ -84,8 +85,8 @@ def test_agent_status_and_database_check_are_read_only() -> None:
     database = FakeCoreDatabase([TENANTS_COLLECTION, AGENTS_COLLECTION])
     client = TestClient(
         create_agent_app(
-            tenant_repository=TenantRepository(database),
-            agent_repository=AgentRepository(database),
+            tenant_service=TenantService(TenantRepository(database)),
+            agent_service=AgentService(AgentRepository(database)),
         )
     )
 
@@ -103,8 +104,8 @@ def test_tenant_database_check_is_read_only() -> None:
     database = FakeCoreDatabase([TENANTS_COLLECTION, AGENTS_COLLECTION])
     client = TestClient(
         create_agent_app(
-            tenant_repository=TenantRepository(database),
-            agent_repository=AgentRepository(database),
+            tenant_service=TenantService(TenantRepository(database)),
+            agent_service=AgentService(AgentRepository(database)),
         )
     )
 
