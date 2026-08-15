@@ -1,2 +1,1 @@
 """knowledge-service service package."""
-

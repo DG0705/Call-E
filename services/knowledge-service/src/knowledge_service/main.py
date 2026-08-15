@@ -1,6 +1,7 @@
 """FastAPI application for the knowledge-service service."""
 
-from call_e_shared import create_app
+from knowledge_service.app import create_knowledge_app
+from knowledge_service.database import create_knowledge_database
 
 
-app = create_app("knowledge-service")
+app = create_knowledge_app(database=create_knowledge_database())

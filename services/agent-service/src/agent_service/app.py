@@ -5,7 +5,12 @@ from fastapi import FastAPI
 from agent_service.database import CoreDatabase, create_core_database
 from agent_service.routes.core import router as core_router
 from agent_service.routes.runtime import router as runtime_router
-from agent_service.runtime import AgentRuntime, LLMProvider, LLMProviderFactory
+from agent_service.runtime import (
+    AgentRuntime,
+    KnowledgeRetriever,
+    LLMProvider,
+    LLMProviderFactory,
+)
 from agent_service.runtime.config import LLMSettings, load_llm_settings
 from agent_service.runtime.context import ConversationStore, InMemoryConversationStore
 from agent_service.runtime.tools import ToolRegistry, create_development_tool_registry
@@ -26,6 +31,8 @@ def create_agent_app(
     llm_settings: LLMSettings | None = None,
     conversation_store: ConversationStore | None = None,
     tool_registry: ToolRegistry | None = None,
+    knowledge_retriever: KnowledgeRetriever | None = None,
+    knowledge_top_k: int = 3,
 ) -> FastAPI:
     """Create the service hosting the minimal tenant and agent core."""
     app = create_app(AGENT_SERVICE_NAME)
@@ -42,6 +49,8 @@ def create_agent_app(
         or (database.conversation_store if database is not None else InMemoryConversationStore()),
         tool_registry=tool_registry or create_development_tool_registry(),
         max_tool_iterations=settings.max_tool_iterations,
+        knowledge_retriever=knowledge_retriever,
+        knowledge_top_k=knowledge_top_k,
     )
     app.include_router(core_router)
     app.include_router(runtime_router)

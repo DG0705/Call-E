@@ -8,6 +8,10 @@ from agent_service.runtime.context import (
     ConversationMessage,
     ConversationStore,
 )
+from agent_service.runtime.knowledge import (
+    KnowledgeRetriever,
+    build_knowledge_context,
+)
 from agent_service.runtime.provider import LLMProvider, LLMResponse
 from agent_service.runtime.tools import (
     ProviderToolCall,
@@ -48,6 +52,8 @@ class AgentRuntime:
         conversation_store: ConversationStore,
         tool_registry: ToolRegistry | None = None,
         max_tool_iterations: int = 5,
+        knowledge_retriever: KnowledgeRetriever | None = None,
+        knowledge_top_k: int = 3,
     ) -> None:
         self._configuration_loader = configuration_loader
         self._provider = provider
@@ -56,6 +62,10 @@ class AgentRuntime:
         if max_tool_iterations < 1:
             raise ValueError("max_tool_iterations must be at least 1.")
         self._max_tool_iterations = max_tool_iterations
+        if knowledge_top_k < 1:
+            raise ValueError("knowledge_top_k must be at least 1.")
+        self._knowledge_retriever = knowledge_retriever
+        self._knowledge_top_k = knowledge_top_k
 
     async def get_agent(self, *, tenant_id: str, agent_id: str) -> Agent:
         """Load the tenant-scoped configuration required by the runtime."""
@@ -71,6 +81,7 @@ class AgentRuntime:
     ) -> RuntimeResult:
         """Append user input, call the provider, and retain local context."""
         agent = await self.get_agent(tenant_id=tenant_id, agent_id=agent_id)
+        turn_instruction = await self._build_turn_instruction(agent, message)
         context = await self._conversation_store.get(
             tenant_id=tenant_id, agent_id=agent_id, conversation_id=conversation_id
         )
@@ -86,7 +97,9 @@ class AgentRuntime:
                 ],
             )
         context.messages.append(ConversationMessage(role="user", content=message))
-        provider_response = await self._generate(agent, context)
+        provider_response = await self._generate(
+            agent, context, system_instruction=turn_instruction
+        )
         iterations = 0
         while provider_response.tool_calls:
             if self._tool_engine is None:
@@ -117,7 +130,9 @@ class AgentRuntime:
                 )
                 self._append_tool_result(context, result)
             iterations += 1
-            provider_response = await self._generate(agent, context)
+            provider_response = await self._generate(
+                agent, context, system_instruction=turn_instruction
+            )
         context.messages.append(
             ConversationMessage(role="assistant", content=provider_response.text)
         )
@@ -129,7 +144,7 @@ class AgentRuntime:
         )
 
     async def _generate(
-        self, agent: Agent, context: ConversationContext
+        self, agent: Agent, context: ConversationContext, *, system_instruction: str
     ) -> LLMResponse:
         tools = (
             self._tool_engine.registry.available_for(agent)
@@ -137,10 +152,26 @@ class AgentRuntime:
             else []
         )
         return await self._provider.generate_response(
-            system_instruction=self._build_system_instruction(agent),
+            system_instruction=system_instruction,
             messages=context.messages,
             tools=tools,
         )
+
+    async def _build_turn_instruction(self, agent: Agent, query: str) -> str:
+        """Build the per-turn instruction, grounding it with agent knowledge."""
+        instruction = self._build_system_instruction(agent)
+        if self._knowledge_retriever is None or not agent.knowledge_sources:
+            return instruction
+        retrieved = await self._knowledge_retriever.retrieve(
+            tenant_id=agent.tenant_id,
+            agent_id=agent.id,
+            query=query,
+            top_k=self._knowledge_top_k,
+        )
+        knowledge = build_knowledge_context(retrieved)
+        if knowledge:
+            instruction = f"{instruction}\n\n{knowledge}"
+        return instruction
 
     @staticmethod
     def _append_assistant_tool_calls(

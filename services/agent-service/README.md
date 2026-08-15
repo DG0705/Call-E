@@ -148,6 +148,34 @@ curl -X POST 'http://localhost/api/v1/agents/agent-1/runtime/tool-test?tenant_id
 7. Conversation state is persisted under the compound identity
    `tenant_id` + `agent_id` + `conversation_id`.
 
+## Knowledge grounding
+
+`AgentRuntime` accepts an optional `KnowledgeRetriever` (defined in
+`agent_service.runtime.knowledge`) plus a `knowledge_top_k` (default `3`). When
+an agent has `knowledge_sources` configured, each turn retrieves the top-k
+chunks for the incoming user message and appends the resulting knowledge block
+to the per-turn `system_instruction`:
+
+```text
+User message
+ ↓
+KnowledgeRetriever.retrieve(tenant, agent, query, top_k)
+ ↓
+build_knowledge_context(chunks)
+ ↓
+system_instruction (this turn only)
+ ↓
+LLM
+```
+
+The retrieved knowledge is transient: it is passed to the LLM provider for the
+current turn and is never persisted into the conversation history. The persisted
+`system` message stays the static instruction built from agent configuration, so
+conversation state stays provider-neutral and replayable.
+
+Retrieval happens once per `respond`, before the tool loop. Agents without
+`knowledge_sources`, or runtimes without a retriever, behave exactly as before.
+
 ## Current endpoints
 
 - `GET /health`
@@ -178,6 +206,7 @@ curl -X POST 'http://localhost/api/v1/agents/agent-1/runtime/test?tenant_id=tena
   -d '{"conversation_id":"demo-1","message":"Hello"}'
 ```
 
-Phone calling, telephony, STT/TTS, RAG, and production LLM providers other than
-Groq deliberately come later. This service does not implement those integrations
-or business workflows.
+Phone calling, telephony, STT/TTS, and production LLM providers other than Groq
+deliberately come later. This service does not implement those integrations or
+business workflows. RAG groundwork is provided through the optional
+`KnowledgeRetriever` boundary, which is implemented by the `knowledge-service`.
