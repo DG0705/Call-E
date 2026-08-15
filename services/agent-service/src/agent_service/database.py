@@ -5,6 +5,7 @@ import os
 from pymongo import AsyncMongoClient
 
 from agent_service.repositories import AgentRepository, TenantRepository
+from agent_service.runtime.mongo_store import MongoConversationStore
 from agent_service.services import AgentService, TenantService
 
 
@@ -21,6 +22,11 @@ class CoreDatabase:
         database = self._client[database_name]
         self.tenant_service = TenantService(TenantRepository(database))
         self.agent_service = AgentService(AgentRepository(database))
+        self.conversation_store = MongoConversationStore(database)
+
+    async def initialize(self) -> None:
+        """Create indexes for persistence owned by the agent service."""
+        await self.conversation_store.ensure_indexes()
 
     async def close(self) -> None:
         """Release the MongoDB client during application shutdown."""

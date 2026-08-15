@@ -32,8 +32,15 @@ Current endpoints:
 - `POST /api/v1/agents/{agent_id}/runtime/test?tenant_id={tenant_id}`
 
 The `ping-db` routes inspect their MongoDB collection without creating or
-modifying data. The runtime test endpoint is development-only and stores its
-conversation context in memory.
+modifying data. Normal agent-service runtime wiring persists conversation memory
+in MongoDB. Conversations are identified and isolated by the compound identity
+`tenant_id`, `agent_id`, and `conversation_id`, so a conversation cannot be
+read across tenants or agents. The complete provider-neutral message history is
+reused on later runtime-test requests with the same identity.
+
+For unit tests or explicitly local wiring, `InMemoryConversationStore` remains
+available as an injected `ConversationStore`. Production application wiring
+uses `MongoConversationStore` and creates its compound lookup index at startup.
 
 Example runtime test request:
 

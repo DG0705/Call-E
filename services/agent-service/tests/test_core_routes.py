@@ -19,6 +19,11 @@ from agent_service.runtime.factory import (
     LLMProviderFactory,
 )
 from agent_service.runtime.groq_provider import GroqProvider
+from agent_service.runtime.mongo_store import (
+    CONVERSATIONS_COLLECTION,
+    CONVERSATION_LOOKUP_INDEX,
+    MongoConversationStore,
+)
 from agent_service.services import AgentService, TenantService
 
 
@@ -82,6 +87,61 @@ class FakeGroqClient:
     def __init__(self) -> None:
         self.completions = FakeGroqCompletions()
         self.chat = type("Chat", (), {"completions": self.completions})()
+
+
+class FakeConversationCollection:
+    def __init__(self) -> None:
+        self.documents: list[dict[str, object]] = []
+        self.indexes: list[tuple[list[tuple[str, int]], dict[str, object]]] = []
+        self.filters: list[dict[str, str]] = []
+
+    async def create_index(
+        self, keys: list[tuple[str, int]], **kwargs: object
+    ) -> str:
+        self.indexes.append((keys, kwargs))
+        return str(kwargs["name"])
+
+    async def find_one(self, filter: dict[str, str]) -> dict[str, object] | None:
+        self.filters.append(filter)
+        return next(
+            (
+                document
+                for document in self.documents
+                if all(document.get(key) == value for key, value in filter.items())
+            ),
+            None,
+        )
+
+    async def update_one(
+        self, filter: dict[str, str], update: dict[str, object], **kwargs: object
+    ) -> None:
+        document = await self.find_one(filter)
+        if document is None:
+            document = {**filter, **update["$setOnInsert"]}
+            self.documents.append(document)
+        document.update(update["$set"])
+
+
+class FakeConversationDatabase:
+    def __init__(self) -> None:
+        self.conversations = FakeConversationCollection()
+
+    def __getitem__(self, name: str) -> FakeConversationCollection:
+        assert name == CONVERSATIONS_COLLECTION
+        return self.conversations
+
+
+class CapturingMockProvider(MockLLMProvider):
+    def __init__(self) -> None:
+        self.calls: list[list[ConversationMessage]] = []
+
+    async def generate_response(
+        self, *, system_instruction: str, messages: list[ConversationMessage]
+    ):
+        self.calls.append(messages.copy())
+        return await super().generate_response(
+            system_instruction=system_instruction, messages=messages
+        )
 
 
 def agent_document() -> dict[str, object]:
@@ -229,6 +289,74 @@ def test_provider_factory_falls_back_without_key_and_rejects_unknown_provider() 
         raise AssertionError("Unsupported providers must fail configuration.")
 
 
+def test_mongo_conversation_store_creates_updates_and_indexes_context() -> None:
+    database = FakeConversationDatabase()
+    store = MongoConversationStore(database)
+    context = ConversationContext(
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        conversation_id="conversation-1",
+        messages=[ConversationMessage(role="user", content="Hello")],
+        metadata={"channel": "runtime-test"},
+    )
+
+    asyncio.run(store.ensure_indexes())
+    asyncio.run(store.save(context))
+    created_at = context.created_at
+    first_updated_at = context.updated_at
+    context.messages.append(ConversationMessage(role="assistant", content="Hi"))
+    asyncio.run(store.save(context))
+    loaded = asyncio.run(
+        store.get(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    assert database.conversations.indexes == [
+        (
+            [("tenant_id", 1), ("agent_id", 1), ("conversation_id", 1)],
+            {"name": CONVERSATION_LOOKUP_INDEX, "unique": True},
+        )
+    ]
+    assert loaded is not None
+    assert [message.content for message in loaded.messages] == ["Hello", "Hi"]
+    assert loaded.metadata == {"channel": "runtime-test"}
+    assert loaded.created_at == created_at
+    assert context.created_at == created_at
+    assert context.updated_at is not None
+    assert first_updated_at is not None
+    assert context.updated_at > first_updated_at
+
+
+def test_mongo_conversation_store_isolates_tenants_and_agents() -> None:
+    database = FakeConversationDatabase()
+    store = MongoConversationStore(database)
+    context = ConversationContext(
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        conversation_id="conversation-1",
+    )
+    asyncio.run(store.save(context))
+
+    other_tenant = asyncio.run(
+        store.get(
+            tenant_id="tenant-2", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+    other_agent = asyncio.run(
+        store.get(
+            tenant_id="tenant-1", agent_id="agent-2", conversation_id="conversation-1"
+        )
+    )
+
+    assert other_tenant is None
+    assert other_agent is None
+    assert database.conversations.filters[-2:] == [
+        {"tenant_id": "tenant-2", "agent_id": "agent-1", "conversation_id": "conversation-1"},
+        {"tenant_id": "tenant-1", "agent_id": "agent-2", "conversation_id": "conversation-1"},
+    ]
+
+
 def test_agent_runtime_builds_context_and_persists_messages() -> None:
     database = FakeCoreDatabase([AGENTS_COLLECTION], [agent_document()])
     store = InMemoryConversationStore()
@@ -255,6 +383,42 @@ def test_agent_runtime_builds_context_and_persists_messages() -> None:
     assert result.text == "Mock response: Can you help me?"
     assert context is not None
     assert [message.role for message in context.messages] == ["system", "user", "assistant"]
+
+
+def test_agent_runtime_preserves_history_with_mongo_conversation_store() -> None:
+    database = FakeCoreDatabase([AGENTS_COLLECTION], [agent_document()])
+    provider = CapturingMockProvider()
+    runtime = AgentRuntime(
+        configuration_loader=AgentService(AgentRepository(database)),
+        provider=provider,
+        conversation_store=MongoConversationStore(FakeConversationDatabase()),
+    )
+
+    asyncio.run(
+        runtime.respond(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            message="Hello, my name is Rahul.",
+        )
+    )
+    asyncio.run(
+        runtime.respond(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            message="What is my name?",
+        )
+    )
+
+    assert [message.content for message in provider.calls[1]] == [
+        "You are Receptionist, acting as a customer support assistant.\n"
+        "Personality: warm and concise.\nRespond in en.\nHelp customers clearly.\n"
+        "Goals: Resolve simple questions.",
+        "Hello, my name is Rahul.",
+        "Mock response: Hello, my name is Rahul.",
+        "What is my name?",
+    ]
 
 
 def test_tenant_status_propagates_request_id() -> None:
@@ -312,10 +476,12 @@ def test_tenant_database_check_is_read_only() -> None:
 
 def test_agent_configuration_and_runtime_test_endpoint() -> None:
     database = FakeCoreDatabase([AGENTS_COLLECTION], [agent_document()])
+    conversation_database = FakeConversationDatabase()
     client = TestClient(
         create_agent_app(
             tenant_service=TenantService(TenantRepository(database)),
             agent_service=AgentService(AgentRepository(database)),
+            conversation_store=MongoConversationStore(conversation_database),
         )
     )
 
@@ -324,6 +490,10 @@ def test_agent_configuration_and_runtime_test_endpoint() -> None:
         "/api/v1/agents/agent-1/runtime/test?tenant_id=tenant-1",
         headers={"X-Request-ID": "runtime-request"},
         json={"conversation_id": "conversation-1", "message": "Hello runtime"},
+    )
+    follow_up = client.post(
+        "/api/v1/agents/agent-1/runtime/test?tenant_id=tenant-1",
+        json={"conversation_id": "conversation-1", "message": "What is my name?"},
     )
 
     assert configuration.status_code == 200
@@ -339,3 +509,17 @@ def test_agent_configuration_and_runtime_test_endpoint() -> None:
         "request_id": "runtime-request",
     }
     assert runtime.headers["X-Request-ID"] == "runtime-request"
+    assert follow_up.status_code == 200
+    assert len(conversation_database.conversations.documents) == 1
+    assert [
+        message["content"]
+        for message in conversation_database.conversations.documents[0]["messages"]
+    ] == [
+        "You are Receptionist, acting as a customer support assistant.\n"
+        "Personality: warm and concise.\nRespond in en.\nHelp customers clearly.\n"
+        "Goals: Resolve simple questions.",
+        "Hello runtime",
+        "Mock response: Hello runtime",
+        "What is my name?",
+        "Mock response: What is my name?",
+    ]

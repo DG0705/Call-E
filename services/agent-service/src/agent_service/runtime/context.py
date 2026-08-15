@@ -1,5 +1,6 @@
-"""Typed, in-memory conversation context for the agent runtime."""
+"""Typed conversation context and its persistence boundary."""
 
+from datetime import datetime
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
@@ -23,6 +24,8 @@ class ConversationContext(BaseModel):
     conversation_id: str
     messages: list[ConversationMessage] = Field(default_factory=list)
     metadata: dict[str, str] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class ConversationStore(Protocol):
