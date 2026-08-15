@@ -8,6 +8,7 @@ from agent_service.routes.runtime import router as runtime_router
 from agent_service.runtime import AgentRuntime, LLMProvider, LLMProviderFactory
 from agent_service.runtime.config import LLMSettings, load_llm_settings
 from agent_service.runtime.context import ConversationStore, InMemoryConversationStore
+from agent_service.runtime.tools import ToolRegistry, create_development_tool_registry
 from agent_service.services import AgentService, TenantService
 from call_e_shared import create_app
 
@@ -24,6 +25,7 @@ def create_agent_app(
     llm_provider: LLMProvider | None = None,
     llm_settings: LLMSettings | None = None,
     conversation_store: ConversationStore | None = None,
+    tool_registry: ToolRegistry | None = None,
 ) -> FastAPI:
     """Create the service hosting the minimal tenant and agent core."""
     app = create_app(AGENT_SERVICE_NAME)
@@ -32,12 +34,14 @@ def create_agent_app(
     )
     app.state.tenant_service = tenant_service or database.tenant_service
     app.state.agent_service = agent_service or database.agent_service
+    settings = llm_settings or load_llm_settings()
     app.state.agent_runtime = agent_runtime or AgentRuntime(
         configuration_loader=app.state.agent_service,
-        provider=llm_provider
-        or LLMProviderFactory.create(llm_settings or load_llm_settings()),
+        provider=llm_provider or LLMProviderFactory.create(settings),
         conversation_store=conversation_store
         or (database.conversation_store if database is not None else InMemoryConversationStore()),
+        tool_registry=tool_registry or create_development_tool_registry(),
+        max_tool_iterations=settings.max_tool_iterations,
     )
     app.include_router(core_router)
     app.include_router(runtime_router)

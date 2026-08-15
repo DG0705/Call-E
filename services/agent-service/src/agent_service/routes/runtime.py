@@ -73,3 +73,32 @@ async def test_runtime(
         model=result.model_name,
         request_id=getattr(request.state, "request_id", None),
     )
+
+
+@router.post(
+    "/api/v1/agents/{agent_id}/runtime/tool-test", response_model=RuntimeTestResponse
+)
+async def test_runtime_tools(
+    request: Request,
+    agent_id: str,
+    payload: RuntimeTestRequest,
+    tenant_id: str = Query(min_length=1),
+) -> RuntimeTestResponse:
+    """Exercise the development runtime path with registered safe tools."""
+    try:
+        result: RuntimeResult = await request.app.state.agent_runtime.respond(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            conversation_id=payload.conversation_id,
+            message=payload.message,
+        )
+    except AgentNotFoundError as exc:
+        raise _not_found() from exc
+    return RuntimeTestResponse(
+        conversation_id=result.conversation_id,
+        agent_id=result.agent_id,
+        response=result.text,
+        provider=result.provider_name,
+        model=result.model_name,
+        request_id=getattr(request.state, "request_id", None),
+    )

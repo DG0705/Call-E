@@ -136,7 +136,7 @@ class CapturingMockProvider(MockLLMProvider):
         self.calls: list[list[ConversationMessage]] = []
 
     async def generate_response(
-        self, *, system_instruction: str, messages: list[ConversationMessage]
+        self, *, system_instruction: str, messages: list[ConversationMessage], tools: object = None
     ):
         self.calls.append(messages.copy())
         return await super().generate_response(
@@ -155,7 +155,7 @@ def agent_document() -> dict[str, object]:
         "language": "en",
         "voice_id": "neutral-voice",
         "goals": ["Resolve simple questions"],
-        "allowed_tools": ["lookup_order"],
+        "allowed_tools": ["get_current_time", "echo_customer_context"],
         "knowledge_sources": ["support-handbook"],
         "created_at": "2026-08-03T12:00:00Z",
         "updated_at": "2026-08-03T12:00:00Z",
@@ -181,7 +181,7 @@ def test_agent_model_is_tenant_scoped_and_provider_neutral() -> None:
 
     assert agent.tenant_id == "tenant-1"
     assert agent.role == "customer support assistant"
-    assert agent.allowed_tools == ["lookup_order"]
+    assert agent.allowed_tools == ["get_current_time", "echo_customer_context"]
     assert agent.model_dump()["id"] == "agent-1"
 
 
@@ -498,7 +498,10 @@ def test_agent_configuration_and_runtime_test_endpoint() -> None:
 
     assert configuration.status_code == 200
     assert configuration.json()["id"] == "agent-1"
-    assert configuration.json()["allowed_tools"] == ["lookup_order"]
+    assert configuration.json()["allowed_tools"] == [
+        "get_current_time",
+        "echo_customer_context",
+    ]
     assert runtime.status_code == 200
     assert runtime.json() == {
         "conversation_id": "conversation-1",
