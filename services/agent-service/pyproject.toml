@@ -6,6 +6,7 @@ requires-python = ">=3.13"
 dependencies = [
     "call-e-shared",
     "fastapi>=0.115.0",
+    "groq>=0.31.0",
     "pymongo>=4.11,<5",
     "uvicorn[standard]>=0.30.0",
 ]

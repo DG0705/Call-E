@@ -8,11 +8,17 @@ from agent_service.app import create_agent_app
 from agent_service.models import AGENTS_COLLECTION, TENANTS_COLLECTION, Agent, Tenant
 from agent_service.repositories import AgentRepository, TenantRepository
 from agent_service.runtime import AgentRuntime, MockLLMProvider
+from agent_service.runtime.config import LLMSettings
 from agent_service.runtime.context import (
     ConversationContext,
     ConversationMessage,
     InMemoryConversationStore,
 )
+from agent_service.runtime.factory import (
+    LLMProviderConfigurationError,
+    LLMProviderFactory,
+)
+from agent_service.runtime.groq_provider import GroqProvider
 from agent_service.services import AgentService, TenantService
 
 
@@ -48,6 +54,34 @@ class FakeCoreDatabase:
     def __getitem__(self, name: str) -> FakeAgentCollection:
         assert name == AGENTS_COLLECTION
         return self.agents
+
+
+class FakeGroqCompletions:
+    def __init__(self) -> None:
+        self.requests: list[dict[str, object]] = []
+
+    async def create(self, **kwargs: object) -> object:
+        self.requests.append(kwargs)
+        return type(
+            "Completion",
+            (),
+            {
+                "choices": [
+                    type("Choice", (), {"message": type("Message", (), {"content": "Groq reply"})()})()
+                ],
+                "usage": type(
+                    "Usage",
+                    (),
+                    {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+                )(),
+            },
+        )()
+
+
+class FakeGroqClient:
+    def __init__(self) -> None:
+        self.completions = FakeGroqCompletions()
+        self.chat = type("Chat", (), {"completions": self.completions})()
 
 
 def agent_document() -> dict[str, object]:
@@ -139,6 +173,60 @@ def test_conversation_context_and_mock_provider() -> None:
     assert context.metadata["channel"] == "runtime-test"
     assert provider_response.text == "Mock response: Hello"
     assert provider_response.provider_name == "mock"
+
+
+def test_groq_provider_normalizes_response_and_usage() -> None:
+    client = FakeGroqClient()
+    provider = GroqProvider(api_key="test-key", model="test-model", client=client)
+
+    response = asyncio.run(
+        provider.generate_response(
+            system_instruction="Use this instruction.",
+            messages=[ConversationMessage(role="user", content="Hello")],
+        )
+    )
+
+    assert response.model_dump() == {
+        "text": "Groq reply",
+        "provider_name": "groq",
+        "model_name": "test-model",
+        "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+    }
+    assert client.completions.requests == [
+        {
+            "model": "test-model",
+            "messages": [
+                {"role": "system", "content": "Use this instruction."},
+                {"role": "user", "content": "Hello"},
+            ],
+        }
+    ]
+
+
+def test_provider_factory_selects_mock_and_groq_without_network() -> None:
+    mock = LLMProviderFactory.create(LLMSettings(provider="mock"))
+    client = FakeGroqClient()
+    groq = LLMProviderFactory.create(
+        LLMSettings(provider="groq", groq_api_key="test-key", groq_model="test-model"),
+        groq_client_factory=lambda _: client,
+    )
+
+    assert isinstance(mock, MockLLMProvider)
+    assert isinstance(groq, GroqProvider)
+
+
+def test_provider_factory_falls_back_without_key_and_rejects_unknown_provider() -> None:
+    fallback = LLMProviderFactory.create(
+        LLMSettings(provider="groq", groq_model="test-model")
+    )
+
+    assert isinstance(fallback, MockLLMProvider)
+    try:
+        LLMProviderFactory.create(LLMSettings(provider="unsupported"))
+    except LLMProviderConfigurationError as exc:
+        assert "Unsupported LLM_PROVIDER" in str(exc)
+    else:
+        raise AssertionError("Unsupported providers must fail configuration.")
 
 
 def test_agent_runtime_builds_context_and_persists_messages() -> None:
