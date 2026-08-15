@@ -93,10 +93,8 @@ class AgentRuntime:
                 provider_response = self._tool_engine_unavailable_response(provider_response)
                 break
             if iterations >= self._max_tool_iterations:
-                self._append_tool_result(
-                    context,
-                    self._limit_result(provider_response.tool_calls[0]),
-                )
+                for provider_call in provider_response.tool_calls:
+                    self._append_tool_result(context, self._limit_result(provider_call))
                 provider_response = LLMResponse(
                     text="Tool execution limit exceeded.",
                     provider_name=provider_response.provider_name,

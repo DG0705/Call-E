@@ -133,6 +133,7 @@ class FakeConversationDatabase:
 
 class CapturingMockProvider(MockLLMProvider):
     def __init__(self) -> None:
+        super().__init__()
         self.calls: list[list[ConversationMessage]] = []
 
     async def generate_response(
@@ -140,7 +141,7 @@ class CapturingMockProvider(MockLLMProvider):
     ):
         self.calls.append(messages.copy())
         return await super().generate_response(
-            system_instruction=system_instruction, messages=messages
+            system_instruction=system_instruction, messages=messages, tools=tools
         )
 
 
@@ -251,6 +252,7 @@ def test_groq_provider_normalizes_response_and_usage() -> None:
         "provider_name": "groq",
         "model_name": "test-model",
         "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+        "tool_calls": [],
     }
     assert client.completions.requests == [
         {
@@ -261,6 +263,66 @@ def test_groq_provider_normalizes_response_and_usage() -> None:
             ],
         }
     ]
+
+
+def test_groq_provider_translates_tools_and_parses_tool_calls() -> None:
+    from agent_service.runtime.groq_provider import _parse_tool_calls, _to_groq_tool
+    from agent_service.runtime.tools import EchoCustomerContextTool, ProviderToolCall
+
+    definition = EchoCustomerContextTool().definition()
+    translated = _to_groq_tool(definition)
+    assert translated == {
+        "type": "function",
+        "function": {
+            "name": "echo_customer_context",
+            "description": definition.description,
+            "parameters": definition.input_schema,
+        },
+    }
+
+    message = type(
+        "Message",
+        (),
+        {
+            "content": "",
+            "tool_calls": [
+                type(
+                    "ToolCall",
+                    (),
+                    {
+                        "id": "call-9",
+                        "function": type(
+                            "Function",
+                            (),
+                            {
+                                "name": "echo_customer_context",
+                                "arguments": '{"message":"hi"}',
+                            },
+                        )(),
+                    },
+                )()
+            ],
+        },
+    )()
+    parsed = _parse_tool_calls(message)
+    assert parsed == [
+        ProviderToolCall(
+            call_id="call-9",
+            tool_name="echo_customer_context",
+            arguments={"message": "hi"},
+        )
+    ]
+
+    client = FakeGroqClient()
+    provider = GroqProvider(api_key="test-key", model="test-model", client=client)
+    asyncio.run(
+        provider.generate_response(
+            system_instruction="Use tools when needed.",
+            messages=[ConversationMessage(role="user", content="Echo")],
+            tools=[definition],
+        )
+    )
+    assert client.completions.requests[0]["tools"] == [translated]
 
 
 def test_provider_factory_selects_mock_and_groq_without_network() -> None:

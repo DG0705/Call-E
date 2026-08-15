@@ -1,4 +1,5 @@
 import json
+import logging
 
 from call_e_shared.logging import JSONFormatter, configure_logging
 
@@ -8,8 +9,13 @@ def test_configure_logging_is_idempotent() -> None:
     configure_logging(service_name="test-service", level="DEBUG")
 
     assert logger.level == 10
-    assert len(logger.handlers) == 1
-    formatter = logger.handlers[0].formatter
+    stream_handlers = [
+        handler
+        for handler in logger.handlers
+        if type(handler) is logging.StreamHandler
+    ]
+    assert len(stream_handlers) == 1
+    formatter = stream_handlers[0].formatter
     assert isinstance(formatter, JSONFormatter)
     assert formatter.service_name == "test-service"
 

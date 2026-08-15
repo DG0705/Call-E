@@ -3,6 +3,7 @@
 import asyncio
 from datetime import UTC, datetime
 import json
+import logging
 
 import pytest
 from fastapi.testclient import TestClient
@@ -173,15 +174,16 @@ def test_engine_authorizes_validates_and_audits(caplog: pytest.LogCaptureFixture
     engine = ToolEngine(registry)
     permitted_agent = agent(allowed_tools=["count"])
 
-    valid = asyncio.run(
-        engine.execute(
-            agent=permitted_agent,
-            call=tool_call(tool_name="count", arguments={"value": "ok"}),
+    with caplog.at_level(logging.INFO, logger="agent_service.tool_engine"):
+        valid = asyncio.run(
+            engine.execute(
+                agent=permitted_agent,
+                call=tool_call(tool_name="count", arguments={"value": "ok"}),
+            )
         )
-    )
-    invalid = asyncio.run(
-        engine.execute(agent=permitted_agent, call=tool_call(tool_name="count", arguments={}))
-    )
+        invalid = asyncio.run(
+            engine.execute(agent=permitted_agent, call=tool_call(tool_name="count", arguments={}))
+        )
 
     assert valid.success is True
     assert invalid.success is False
@@ -323,6 +325,94 @@ def test_runtime_stops_at_maximum_tool_iterations() -> None:
     assert any("max_tool_iterations" in message.content for message in context.messages)
 
 
+def test_registry_available_for_filters_by_enabled_allowed_and_tenant() -> None:
+    registry = create_development_tool_registry()
+    registry.register(
+        CountingTool(
+            ToolDefinition(
+                tool_name="tenant_only",
+                description="Tenant scoped.",
+                version="v1",
+                input_schema={"type": "object"},
+                tenant_id="tenant-2",
+            )
+        )
+    )
+    disabled = CountingTool(
+        ToolDefinition(
+            tool_name="disabled_tool",
+            description="Disabled.",
+            version="v1",
+            input_schema={"type": "object"},
+            enabled=False,
+        )
+    )
+    registry.register(disabled)
+
+    names = [
+        definition.tool_name
+        for definition in registry.available_for(agent(allowed_tools=["echo_customer_context", "tenant_only", "disabled_tool"]))
+    ]
+
+    assert names == ["echo_customer_context"]
+
+
+def test_engine_rejects_unknown_and_failing_tools() -> None:
+    class BrokenTool:
+        def definition(self) -> ToolDefinition:
+            return ToolDefinition(
+                tool_name="broken",
+                description="Always fails.",
+                version="v1",
+                input_schema={"type": "object"},
+            )
+
+        async def execute(
+            self, context: ToolExecutionContext, arguments: dict[str, object]
+        ) -> ToolResult:
+            raise RuntimeError("boom")
+
+    registry = ToolRegistry()
+    registry.register(BrokenTool())
+    engine = ToolEngine(registry)
+
+    missing = asyncio.run(
+        engine.execute(agent=agent(allowed_tools=["missing"]), call=tool_call(tool_name="missing"))
+    )
+    broken = asyncio.run(
+        engine.execute(
+            agent=agent(allowed_tools=["broken"]),
+            call=tool_call(tool_name="broken", arguments={}),
+        )
+    )
+
+    assert missing.metadata["code"] == "tool_not_found"
+    assert broken.metadata["code"] == "execution_failed"
+    assert broken.success is False
+
+
+def test_engine_rejects_agent_mismatch_and_records_audit_payload(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    registry = create_development_tool_registry()
+    engine = ToolEngine(registry)
+
+    with caplog.at_level(logging.INFO, logger="agent_service.tool_engine"):
+        result = asyncio.run(
+            engine.execute(
+                agent=agent(),
+                call=tool_call(agent_id="other-agent"),
+            )
+        )
+
+    assert result.success is False
+    assert result.metadata["code"] == "agent_mismatch"
+    audit = next(record for record in caplog.records if record.message == "tool_execution_audit")
+    assert audit.tool_audit["tool_name"] == "echo_customer_context"
+    assert audit.tool_audit["success"] is False
+    assert audit.tool_audit["tenant_id"] == "tenant-1"
+
+
 def test_tool_test_endpoint_executes_mock_tool_flow_and_propagates_request_id() -> None:
     runtime = AgentRuntime(
         configuration_loader=StaticAgentLoader(agent()),
@@ -356,3 +446,58 @@ def test_tool_test_endpoint_executes_mock_tool_flow_and_propagates_request_id() 
     assert response.json()["response"] == "Mock response: Use a tool"
     assert response.json()["request_id"] == "tool-request"
     assert response.headers["X-Request-ID"] == "tool-request"
+    assert response.json()["provider"] == "mock"
+    assert response.json()["agent_id"] == "agent-1"
+    assert response.json()["conversation_id"] == "conversation-1"
+
+
+def test_runtime_persists_conversation_after_tool_loop() -> None:
+    store = InMemoryConversationStore()
+    runtime = AgentRuntime(
+        configuration_loader=StaticAgentLoader(agent()),
+        provider=MockLLMProvider(
+            planned_tool_calls=[
+                ProviderToolCall(
+                    call_id="call-1",
+                    tool_name="get_current_time",
+                    arguments={"timezone": "UTC"},
+                )
+            ]
+        ),
+        conversation_store=store,
+        tool_registry=create_development_tool_registry(),
+    )
+
+    first = asyncio.run(
+        runtime.respond(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            message="What time is it?",
+        )
+    )
+    second = asyncio.run(
+        runtime.respond(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            message="Thanks",
+        )
+    )
+    isolated = asyncio.run(
+        store.get(
+            tenant_id="tenant-2", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+    context = asyncio.run(
+        store.get(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    assert first.provider_name == "mock"
+    assert second.text == "Mock response: Thanks"
+    assert isolated is None
+    assert context is not None
+    assert [message.role for message in context.messages].count("user") == 2
+    assert any(message.role == "tool" for message in context.messages)

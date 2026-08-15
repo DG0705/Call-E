@@ -1,5 +1,7 @@
 """Provider-neutral tool engine for safe, authorized agent actions."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 import logging
 from typing import Literal, Protocol
@@ -154,6 +156,8 @@ class ToolEngine:
         definition = tool.definition()
         if call.tenant_id != agent.tenant_id:
             return self._failure(call, "tenant_mismatch", "Tool call tenant does not match agent.")
+        if call.agent_id != agent.id:
+            return self._failure(call, "agent_mismatch", "Tool call agent does not match loaded agent.")
         if definition.tenant_id is not None and definition.tenant_id != call.tenant_id:
             return self._failure(call, "tenant_mismatch", "Tool is not available to this tenant.")
         if not definition.enabled:
@@ -207,15 +211,18 @@ class GetCurrentTimeTool:
     ) -> ToolResult:
         timezone = str(arguments["timezone"])
         try:
-            current_time = datetime.now(ZoneInfo(timezone)).isoformat()
+            zone = ZoneInfo(timezone)
         except ZoneInfoNotFoundError:
-            return ToolResult(
-                call_id=context.call_id,
-                tool_name=self.definition().tool_name,
-                success=False,
-                error="Unknown timezone.",
-                metadata={"code": "invalid_timezone"},
-            )
+            if timezone.upper() != "UTC":
+                return ToolResult(
+                    call_id=context.call_id,
+                    tool_name=self.definition().tool_name,
+                    success=False,
+                    error="Unknown timezone.",
+                    metadata={"code": "invalid_timezone"},
+                )
+            zone = UTC
+        current_time = datetime.now(zone).isoformat()
         return ToolResult(
             call_id=context.call_id,
             tool_name=self.definition().tool_name,

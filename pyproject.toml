@@ -17,3 +17,5 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["shared/tests", "services"]
+pythonpath = ["shared/src"]
+addopts = ["--import-mode=importlib"]
