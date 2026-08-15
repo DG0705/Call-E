@@ -92,6 +92,7 @@ class AgentRuntime:
             if self._tool_engine is None:
                 provider_response = self._tool_engine_unavailable_response(provider_response)
                 break
+            self._append_assistant_tool_calls(context, provider_response)
             if iterations >= self._max_tool_iterations:
                 for provider_call in provider_response.tool_calls:
                     self._append_tool_result(context, self._limit_result(provider_call))
@@ -142,9 +143,26 @@ class AgentRuntime:
         )
 
     @staticmethod
+    def _append_assistant_tool_calls(
+        context: ConversationContext, response: LLMResponse
+    ) -> None:
+        """Persist the assistant turn that requested tools before its results."""
+        context.messages.append(
+            ConversationMessage(
+                role="assistant",
+                content=response.text,
+                tool_calls=response.tool_calls,
+            )
+        )
+
+    @staticmethod
     def _append_tool_result(context: ConversationContext, result: ToolResult) -> None:
         context.messages.append(
-            ConversationMessage(role="tool", content=result.model_dump_json())
+            ConversationMessage(
+                role="tool",
+                content=result.model_dump_json(),
+                tool_call_id=result.call_id,
+            )
         )
 
     @staticmethod

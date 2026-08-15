@@ -5,6 +5,8 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
 
+from agent_service.runtime.tools import ProviderToolCall
+
 
 MessageRole = Literal["system", "user", "assistant", "tool"]
 
@@ -14,6 +16,8 @@ class ConversationMessage(BaseModel):
 
     role: MessageRole
     content: str
+    tool_call_id: str | None = None
+    tool_calls: list[ProviderToolCall] = Field(default_factory=list)
 
 
 class ConversationContext(BaseModel):

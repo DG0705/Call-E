@@ -124,28 +124,34 @@ class ToolEngine:
         result = self._authorize(agent=agent, call=call)
         if result is None:
             tool = self._registry.get(call.tool_name)
-            assert tool is not None
-            definition = tool.definition()
-            try:
-                Draft202012Validator(definition.input_schema).validate(call.arguments)
-            except ValidationError as exc:
-                result = self._failure(call, "invalid_arguments", exc.message)
-            else:
-                context = ToolExecutionContext(
-                    tenant_id=call.tenant_id,
-                    agent_id=call.agent_id,
-                    conversation_id=call.conversation_id,
-                    call_id=call.call_id,
+            if tool is None:
+                result = self._failure(
+                    call, "tool_not_found", "Requested tool is not registered."
                 )
+            else:
+                definition = tool.definition()
                 try:
-                    result = await tool.execute(context, call.arguments)
-                except Exception:
-                    self._logger.exception("tool_execution_failed", extra={"tool": call.tool_name})
-                    result = self._failure(call, "execution_failed", "Tool execution failed.")
+                    Draft202012Validator(definition.input_schema).validate(call.arguments)
+                except ValidationError as exc:
+                    result = self._failure(call, "invalid_arguments", exc.message)
                 else:
-                    result = result.model_copy(
-                        update={"call_id": call.call_id, "tool_name": call.tool_name}
+                    context = ToolExecutionContext(
+                        tenant_id=call.tenant_id,
+                        agent_id=call.agent_id,
+                        conversation_id=call.conversation_id,
+                        call_id=call.call_id,
                     )
+                    try:
+                        result = await tool.execute(context, call.arguments)
+                    except Exception:
+                        self._logger.exception(
+                            "tool_execution_failed", extra={"tool": call.tool_name}
+                        )
+                        result = self._failure(call, "execution_failed", "Tool execution failed.")
+                    else:
+                        result = result.model_copy(
+                            update={"call_id": call.call_id, "tool_name": call.tool_name}
+                        )
         self._audit(call, result)
         return result
 

@@ -47,14 +47,7 @@ class GroqProvider:
         """Send the runtime-built instruction and context to Groq unchanged."""
         request: dict[str, Any] = {
             "model": self._model,
-            "messages": [
-                {"role": "system", "content": system_instruction},
-                *[
-                    {"role": message.role, "content": message.content}
-                    for message in messages
-                    if message.role != "system"
-                ],
-            ],
+            "messages": _to_groq_messages(system_instruction, messages),
         }
         if tools:
             request["tools"] = [_to_groq_tool(tool) for tool in tools]
@@ -99,20 +92,62 @@ def _to_groq_tool(definition: ToolDefinition) -> dict[str, Any]:
     }
 
 
+def _to_groq_messages(
+    system_instruction: str, messages: list[ConversationMessage]
+) -> list[dict[str, Any]]:
+    """Convert neutral messages into the chat shape Groq requires for tools."""
+    converted: list[dict[str, Any]] = [
+        {"role": "system", "content": system_instruction}
+    ]
+    for message in messages:
+        if message.role == "system":
+            continue
+        if message.role == "assistant" and message.tool_calls:
+            converted.append(
+                {
+                    "role": "assistant",
+                    "content": message.content or None,
+                    "tool_calls": [_to_groq_tool_call(call) for call in message.tool_calls],
+                }
+            )
+        elif message.role == "tool":
+            tool_message: dict[str, Any] = {"role": "tool", "content": message.content}
+            if message.tool_call_id is not None:
+                tool_message["tool_call_id"] = message.tool_call_id
+            converted.append(tool_message)
+        else:
+            converted.append({"role": message.role, "content": message.content})
+    return converted
+
+
+def _to_groq_tool_call(call: ProviderToolCall) -> dict[str, Any]:
+    """Serialize a neutral tool call to the shape Groq expects on assistant turns."""
+    return {
+        "id": call.call_id,
+        "type": "function",
+        "function": {"name": call.tool_name, "arguments": json.dumps(call.arguments)},
+    }
+
+
 def _parse_tool_calls(message: Any) -> list[ProviderToolCall]:
     """Convert Groq SDK tool calls without leaking provider types to runtime."""
     parsed: list[ProviderToolCall] = []
     for tool_call in getattr(message, "tool_calls", None) or []:
+        function = getattr(tool_call, "function", None)
+        call_id = getattr(tool_call, "id", None)
+        tool_name = getattr(function, "name", None) if function is not None else None
+        if not call_id or not tool_name:
+            continue
         try:
-            arguments = json.loads(tool_call.function.arguments)
+            arguments = json.loads(getattr(function, "arguments", "{}") or "{}")
         except (TypeError, json.JSONDecodeError):
             arguments = {}
         if not isinstance(arguments, dict):
             arguments = {}
         parsed.append(
             ProviderToolCall(
-                call_id=tool_call.id,
-                tool_name=tool_call.function.name,
+                call_id=call_id,
+                tool_name=tool_name,
                 arguments=arguments,
             )
         )

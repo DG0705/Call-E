@@ -325,6 +325,110 @@ def test_groq_provider_translates_tools_and_parses_tool_calls() -> None:
     assert client.completions.requests[0]["tools"] == [translated]
 
 
+def test_groq_provider_sends_tool_call_and_tool_result_messages() -> None:
+    from agent_service.runtime.tools import ProviderToolCall
+
+    client = FakeGroqClient()
+    provider = GroqProvider(api_key="test-key", model="test-model", client=client)
+    messages = [
+        ConversationMessage(role="user", content="Echo Rahul"),
+        ConversationMessage(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ProviderToolCall(
+                    call_id="call-1",
+                    tool_name="echo_customer_context",
+                    arguments={"message": "Rahul"},
+                )
+            ],
+        ),
+        ConversationMessage(
+            role="tool",
+            content='{"call_id":"call-1","success":true}',
+            tool_call_id="call-1",
+        ),
+    ]
+
+    asyncio.run(
+        provider.generate_response(
+            system_instruction="Use tools when needed.",
+            messages=messages,
+        )
+    )
+
+    assert client.completions.requests[0]["messages"] == [
+        {"role": "system", "content": "Use tools when needed."},
+        {"role": "user", "content": "Echo Rahul"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {
+                        "name": "echo_customer_context",
+                        "arguments": '{"message": "Rahul"}',
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "content": '{"call_id":"call-1","success":true}',
+            "tool_call_id": "call-1",
+        },
+    ]
+
+
+def test_groq_parse_tool_calls_skips_malformed_entries() -> None:
+    from agent_service.runtime.groq_provider import _parse_tool_calls
+    from agent_service.runtime.tools import ProviderToolCall
+
+    def tool_call(id: str, name: str | None, arguments: str) -> object:
+        return type(
+            "ToolCall",
+            (),
+            {
+                "id": id,
+                "function": type(
+                    "Function", (), {"name": name, "arguments": arguments}
+                )(),
+            },
+        )()
+
+    message = type(
+        "Message",
+        (),
+        {
+            "content": "",
+            "tool_calls": [
+                tool_call("call-1", "echo_customer_context", '{"message":"hi"}'),
+                tool_call("call-2", None, "{}"),
+                tool_call("", "echo_customer_context", "{}"),
+                tool_call("call-4", "echo_customer_context", "not-json"),
+                tool_call("call-5", "echo_customer_context", "[1, 2]"),
+            ],
+        },
+    )()
+    parsed = _parse_tool_calls(message)
+
+    assert parsed == [
+        ProviderToolCall(
+            call_id="call-1",
+            tool_name="echo_customer_context",
+            arguments={"message": "hi"},
+        ),
+        ProviderToolCall(
+            call_id="call-4", tool_name="echo_customer_context", arguments={}
+        ),
+        ProviderToolCall(
+            call_id="call-5", tool_name="echo_customer_context", arguments={}
+        ),
+    ]
+
+
 def test_provider_factory_selects_mock_and_groq_without_network() -> None:
     mock = LLMProviderFactory.create(LLMSettings(provider="mock"))
     client = FakeGroqClient()

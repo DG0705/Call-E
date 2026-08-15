@@ -451,6 +451,167 @@ def test_tool_test_endpoint_executes_mock_tool_flow_and_propagates_request_id() 
     assert response.json()["conversation_id"] == "conversation-1"
 
 
+def test_runtime_persists_assistant_tool_call_turn_and_tool_result_id() -> None:
+    store = InMemoryConversationStore()
+    runtime = AgentRuntime(
+        configuration_loader=StaticAgentLoader(agent()),
+        provider=MockLLMProvider(
+            planned_tool_calls=[
+                ProviderToolCall(
+                    call_id="call-1",
+                    tool_name="echo_customer_context",
+                    arguments={"message": "Rahul"},
+                )
+            ]
+        ),
+        conversation_store=store,
+        tool_registry=create_development_tool_registry(),
+    )
+
+    asyncio.run(
+        runtime.respond(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            message="Echo Rahul",
+        )
+    )
+    context = asyncio.run(
+        store.get(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    assert context is not None
+    assistant_turn = next(
+        message
+        for message in context.messages
+        if message.role == "assistant" and message.tool_calls
+    )
+    tool_message = next(message for message in context.messages if message.role == "tool")
+    assert assistant_turn.tool_calls == [
+        ProviderToolCall(
+            call_id="call-1",
+            tool_name="echo_customer_context",
+            arguments={"message": "Rahul"},
+        )
+    ]
+    assert tool_message.tool_call_id == "call-1"
+    assert json.loads(tool_message.content)["call_id"] == "call-1"
+
+
+def test_runtime_recovers_cleanly_when_tool_arguments_are_invalid() -> None:
+    store = InMemoryConversationStore()
+    runtime = AgentRuntime(
+        configuration_loader=StaticAgentLoader(agent()),
+        provider=MockLLMProvider(
+            planned_tool_calls=[
+                ProviderToolCall(
+                    call_id="call-1",
+                    tool_name="echo_customer_context",
+                    arguments={},
+                )
+            ]
+        ),
+        conversation_store=store,
+        tool_registry=create_development_tool_registry(),
+    )
+
+    result = asyncio.run(
+        runtime.respond(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            message="Echo missing args",
+        )
+    )
+    context = asyncio.run(
+        store.get(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    assert result.text == "Mock response: Echo missing args"
+    assert context is not None
+    tool_message = next(message for message in context.messages if message.role == "tool")
+    payload = json.loads(tool_message.content)
+    assert payload["success"] is False
+    assert payload["metadata"]["code"] == "invalid_arguments"
+
+
+def test_runtime_never_executes_tool_calls_agent_is_not_allowed_to_use() -> None:
+    store = InMemoryConversationStore()
+    runtime = AgentRuntime(
+        configuration_loader=StaticAgentLoader(
+            agent(allowed_tools=["get_current_time"])
+        ),
+        provider=MockLLMProvider(
+            planned_tool_calls=[
+                ProviderToolCall(
+                    call_id="call-1",
+                    tool_name="echo_customer_context",
+                    arguments={"message": "blocked"},
+                )
+            ]
+        ),
+        conversation_store=store,
+        tool_registry=create_development_tool_registry(),
+    )
+
+    result = asyncio.run(
+        runtime.respond(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            message="Try unauthorized",
+        )
+    )
+    context = asyncio.run(
+        store.get(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    assert result.text == "Mock response: Try unauthorized"
+    assert context is not None
+    tool_message = next(message for message in context.messages if message.role == "tool")
+    payload = json.loads(tool_message.content)
+    assert payload["success"] is False
+    assert payload["metadata"]["code"] == "tool_not_allowed"
+    assert payload["tool_name"] == "echo_customer_context"
+
+
+def test_audit_event_contains_all_required_fields(caplog: pytest.LogCaptureFixture) -> None:
+    registry = create_development_tool_registry()
+    engine = ToolEngine(registry)
+
+    with caplog.at_level(logging.INFO, logger="agent_service.tool_engine"):
+        asyncio.run(engine.execute(agent=agent(), call=tool_call()))
+
+    audit = next(
+        record for record in caplog.records if record.message == "tool_execution_audit"
+    )
+    event = audit.tool_audit
+    for key in (
+        "tenant_id",
+        "agent_id",
+        "conversation_id",
+        "call_id",
+        "tool_name",
+        "success",
+        "timestamp",
+    ):
+        assert key in event
+    assert event["tenant_id"] == "tenant-1"
+    assert event["agent_id"] == "agent-1"
+    assert event["conversation_id"] == "conversation-1"
+    assert event["call_id"] == "call-1"
+    assert event["tool_name"] == "echo_customer_context"
+    assert event["success"] is True
+    assert "result" not in event
+    assert "arguments" not in event
+
+
 def test_runtime_persists_conversation_after_tool_loop() -> None:
     store = InMemoryConversationStore()
     runtime = AgentRuntime(

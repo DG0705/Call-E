@@ -80,15 +80,18 @@ Authorized calls validate `arguments` against the tool's JSON Schema
 3. Resolve allowed tool definitions from the registry.
 4. Provide those definitions to the LLM provider.
 5. Receive zero or more provider-neutral `ProviderToolCall` values.
-6. Authorize and validate each call.
-7. Execute with a restricted `ToolExecutionContext` (`tenant_id`, `agent_id`,
+6. Persist the assistant turn that requested the tools (including its
+   provider-neutral `tool_calls`).
+7. Authorize and validate each call.
+8. Execute with a restricted `ToolExecutionContext` (`tenant_id`, `agent_id`,
    `conversation_id`, `call_id`, `metadata` only — no database handles or secrets).
-8. Append the JSON-serializable `ToolResult` to the conversation as a `tool`
-   message.
-9. Continue LLM generation with the updated conversation.
-10. Stop when the provider returns text without tool calls, or when
+9. Append each JSON-serializable `ToolResult` to the conversation as a `tool`
+   message that keeps its `tool_call_id`, so provider adapters can replay the
+   conversation in the shape their API requires.
+10. Continue LLM generation with the updated conversation.
+11. Stop when the provider returns text without tool calls, or when
     `MAX_TOOL_ITERATIONS` is reached (default `5`).
-11. Persist the conversation and return the final response.
+12. Persist the conversation and return the final response.
 
 Each attempt emits a structured audit log (`tool_execution_audit`) with tenant,
 agent, conversation, call, tool name, success, and timestamp. Argument and
