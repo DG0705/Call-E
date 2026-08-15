@@ -40,8 +40,6 @@ def test_agent_model_links_to_a_tenant() -> None:
             "_id": "agent-1",
             "tenant_id": "tenant-1",
             "name": "Receptionist",
-            "voice_name": "default",
-            "language": "en",
             "created_at": "2026-08-03T12:00:00Z",
             "updated_at": "2026-08-03T12:00:00Z",
         }

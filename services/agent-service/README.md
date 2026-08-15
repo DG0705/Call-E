@@ -5,6 +5,7 @@ and agents. It does not implement telephony, AI, billing, or business workflows.
 
 Public core routes:
 
+- `GET /health`
 - `GET /api/v1/tenants/status`
 - `GET /api/v1/tenants/ping-db`
 - `GET /api/v1/agents/status`

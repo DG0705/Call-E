@@ -22,7 +22,7 @@ class Tenant(BaseModel):
 
 
 class Agent(BaseModel):
-    """A tenant-scoped agent without workflow or telephony configuration."""
+    """A tenant-scoped agent without workflow configuration."""
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -30,7 +30,5 @@ class Agent(BaseModel):
     tenant_id: str
     name: str
     status: str = "active"
-    voice_name: str
-    language: str
     created_at: datetime
     updated_at: datetime
