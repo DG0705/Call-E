@@ -5,6 +5,7 @@ import os
 from pymongo import AsyncMongoClient
 
 from voice_service.session_store import MongoVoiceSessionStore
+from voice_service.telephony.store import MongoCallStore
 
 DEFAULT_VOICE_DATABASE = "call_e_voice"
 MONGODB_URL_ENV_VAR = "MONGODB_URL"
@@ -17,10 +18,12 @@ class VoiceDatabase:
     def __init__(self, *, mongodb_url: str, database_name: str) -> None:
         self._client = AsyncMongoClient(mongodb_url, serverSelectionTimeoutMS=1_000)
         self.session_store = MongoVoiceSessionStore(self._client[database_name])
+        self.call_store = MongoCallStore(self._client[database_name])
 
     async def initialize(self) -> None:
         """Create indexes for persistence owned by the voice service."""
         await self.session_store.ensure_indexes()
+        await self.call_store.ensure_indexes()
 
     async def close(self) -> None:
         """Release the MongoDB client during application shutdown."""

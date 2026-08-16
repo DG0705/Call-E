@@ -1,0 +1,14 @@
+# Development-only Asterisk for exercising the voice service adapter.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.asterisk.yml up -d asterisk
+
+services:
+  asterisk:
+    build:
+      context: services/voice-service
+      dockerfile: telephony/asterisk/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5060:5060/udp"
+      - "8088:8088"
+    networks:
+      - call-e-network
