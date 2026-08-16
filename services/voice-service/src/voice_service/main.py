@@ -1,6 +1,6 @@
-"""FastAPI application for the voice-service service."""
+"""Voice service ASGI entrypoint."""
 
-from call_e_shared import create_app
+from voice_service.app import create_voice_app
 
 
-app = create_app("voice-service")
+app = create_voice_app()
