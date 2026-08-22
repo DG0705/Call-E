@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
+
 from agent_service.kaari.models import SalesLead
 from agent_service.kaari.repositories import LeadRepository
 from agent_service.runtime.tools import (
@@ -24,10 +26,10 @@ class CreateSalesLeadTool:
             description=(
                 "Create a sales lead when a customer expresses genuine interest "
                 "in purchasing Kaari products. Requires customer name, phone, "
-                "requirements, and at least one product ID. Optional: email, "
-                "company, quantity, and notes."
+                "and requirements. Optional: email, company, location, product IDs, "
+                "quantity, preferred colours/finish/texture, budget, and notes."
             ),
-            version="v1",
+            version="v2",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -49,6 +51,10 @@ class CreateSalesLeadTool:
                         "type": "string",
                         "description": "Customer company name (optional).",
                     },
+                    "location": {
+                        "type": "string",
+                        "description": "Customer location or city (optional).",
+                    },
                     "requirements": {
                         "type": "string",
                         "description": "Description of what the customer needs.",
@@ -58,19 +64,35 @@ class CreateSalesLeadTool:
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "List of product IDs the customer is interested in.",
-                        "minItems": 1,
                     },
                     "quantity": {
                         "type": "integer",
                         "description": "Total quantity required (optional).",
                         "minimum": 1,
                     },
+                    "preferred_colours": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Customer's preferred colours (optional).",
+                    },
+                    "preferred_finish": {
+                        "type": "string",
+                        "description": "Customer's preferred finish (optional).",
+                    },
+                    "preferred_texture": {
+                        "type": "string",
+                        "description": "Customer's preferred texture (optional).",
+                    },
+                    "budget": {
+                        "type": "number",
+                        "description": "Customer's budget in INR (optional).",
+                    },
                     "notes": {
                         "type": "string",
                         "description": "Additional notes about the enquiry (optional).",
                     },
                 },
-                "required": ["customer_name", "phone", "requirements", "product_ids"],
+                "required": ["customer_name", "phone", "requirements"],
                 "additionalProperties": False,
             },
             risk_level="medium",
@@ -82,7 +104,6 @@ class CreateSalesLeadTool:
         customer_name = str(arguments.get("customer_name", "")).strip()
         phone = str(arguments.get("phone", "")).strip()
         requirements = str(arguments.get("requirements", "")).strip()
-        product_ids_raw = arguments.get("product_ids", [])
 
         if not customer_name:
             return ToolResult(
@@ -108,18 +129,22 @@ class CreateSalesLeadTool:
                 error="Requirements description is required.",
                 metadata={"code": "missing_requirements"},
             )
-        if not isinstance(product_ids_raw, list) or not product_ids_raw:
-            return ToolResult(
-                call_id=context.call_id,
-                tool_name=self.definition().tool_name,
-                success=False,
-                error="At least one product_id is required.",
-                metadata={"code": "missing_product_ids"},
-            )
 
-        product_ids = [str(pid) for pid in product_ids_raw]
-        lead_id = f"lead-{context.tenant_id}-{context.call_id[:8]}"
+        product_ids_raw = arguments.get("product_ids", [])
+        product_ids = [str(pid) for pid in product_ids_raw] if isinstance(product_ids_raw, list) else []
         quantity = int(arguments.get("quantity", 0))
+
+        preferred_colours_raw = arguments.get("preferred_colours", [])
+        preferred_colours = [str(c) for c in preferred_colours_raw] if isinstance(preferred_colours_raw, list) else []
+
+        budget = None
+        if "budget" in arguments and arguments["budget"] is not None:
+            try:
+                budget = Decimal(str(arguments["budget"]))
+            except (InvalidOperation, ValueError):
+                pass
+
+        lead_id = f"lead-{context.tenant_id}-{context.call_id[:8]}"
 
         lead = SalesLead(
             lead_id=lead_id,
@@ -128,15 +153,27 @@ class CreateSalesLeadTool:
             phone=phone,
             email=str(arguments.get("email", "")) or None,
             company=str(arguments.get("company", "")) or None,
+            location=str(arguments.get("location", "")) or None,
             requirements=requirements,
             interested_products=product_ids,
             quantity=quantity,
+            preferred_colours=preferred_colours,
+            preferred_finish=str(arguments.get("preferred_finish", "")) or None,
+            preferred_texture=str(arguments.get("preferred_texture", "")) or None,
+            budget=budget,
             source="phone",
             status="new",
             notes=str(arguments.get("notes", "")) or "",
         )
 
         await self._repository.create(lead)
+
+        bulk_note = ""
+        if quantity >= 20:
+            bulk_note = (
+                " This is a bulk order (20+ units) that will require "
+                "commercial confirmation from the Kaari sales team."
+            )
 
         return ToolResult(
             call_id=context.call_id,
@@ -145,10 +182,13 @@ class CreateSalesLeadTool:
             result={
                 "lead_id": lead.lead_id,
                 "status": lead.status,
+                "bulk_order": quantity >= 20,
                 "confirmation": (
                     f"Sales lead {lead.lead_id} created for {customer_name}. "
-                    f"Products: {', '.join(product_ids)}. "
                     f"Requirements: {requirements}"
+                    + (f" Products: {', '.join(product_ids)}." if product_ids else "")
+                    + (f" Quantity: {quantity}." if quantity else "")
+                    + bulk_note
                 ),
             },
         )

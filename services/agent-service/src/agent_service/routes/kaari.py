@@ -27,6 +27,7 @@ class KaariTestResponse(BaseModel):
     tool_calls: list[str] = Field(default_factory=list)
     tool_results: list[dict[str, object]] = Field(default_factory=list)
     lead_id: str | None = None
+    pricing: dict[str, object] | None = None
     request_id: str | None = None
 
 
@@ -57,15 +58,12 @@ async def kaari_sales_test(
     except AgentNotFoundError as exc:
         raise _not_found() from exc
 
-    tool_calls: list[str] = []
-    tool_results: list[dict[str, object]] = []
-    lead_id: str | None = None
-
     return KaariTestResponse(
         conversation_id=result.conversation_id,
         response=result.text,
-        tool_calls=tool_calls,
-        tool_results=tool_results,
-        lead_id=lead_id,
+        tool_calls=[],
+        tool_results=[],
+        lead_id=None,
+        pricing=None,
         request_id=getattr(request.state, "request_id", None),
     )

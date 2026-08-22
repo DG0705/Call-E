@@ -10,26 +10,76 @@ _KNOWLEDGE_CHUNKS: list[dict[str, str]] = [
     {
         "chunk_id": "kaari-about",
         "content": (
-            "Kaari Planters is a manufacturer of premium fibreglass reinforced plastic (FRP) planters "
-            "based in India. The company designs and produces planters for residential, commercial, and "
-            "hospitality landscaping. All products are manufactured in-house using high-quality FRP material."
+            "Kaari Planters is a premium manufacturer of handcrafted fibreglass reinforced plastic (FRP) "
+            "planters based in India. The company designs and produces planters for residential, commercial, "
+            "hospitality, and landscape architecture. All products are handcrafted in-house using high-quality "
+            "FRP material. Prices on the catalog are listed in Indian Rupees (INR)."
         ),
     },
     {
         "chunk_id": "kaari-material",
         "content": (
             "FRP (Fibreglass Reinforced Plastic) is a composite material that is lightweight, strong, "
-            "and weather-resistant. Kaari FRP planters are UV-stable, frost-resistant, and corrosion-proof. "
-            "They are suitable for both indoor and outdoor environments. FRP does not rust or degrade like "
-            "metal or concrete planters."
+            "and weather-resistant. Kaari FRP planters are UV-stable, frost-resistant, crack-proof, "
+            "rust-resistant, and corrosion-proof. They are suitable for both indoor and outdoor environments. "
+            "FRP does not degrade like metal or concrete planters."
         ),
     },
     {
-        "chunk_id": "kaari-categories",
+        "chunk_id": "kaari-collections",
         "content": (
-            "Kaari product categories include: Trough Planters, Round Planters, Column Planters, "
-            "Wall Planters, Desktop Planters, Outdoor Planters, and Custom Planters. Each category "
-            "covers multiple sizes and colour options."
+            "Kaari has three collections: Neo (modern, geometric), Heritage (timeless, classic profiles), "
+            "and Linea (minimalist, clean lines). Models include DEW, DODA, DUNE, ECHO, IOTA, KAVI, LUNA, "
+            "NOVA, OVA, PARA, QUBE, RIMA, RUCHI, SARA, TARA, UDAYA, ZION, ARLO, BRIK, CAMEO, CAPE, CELLO, "
+            "DOME, JADE, KAMI, KIMI, LUNA-H, OPAL, PEARL, PILLAR, SERA, VERO, ALTO, ASPEN, BOX, BOX-72, "
+            "CUBE, DUO, DUO-60, DUNE, LEGO, NINA, NOVA-L, PICO, RECTANGLE, and others. Over 55 product "
+            "models across the three collections."
+        ),
+    },
+    {
+        "chunk_id": "kaari-measurements",
+        "content": (
+            "Measurements are in inches. For round planters: UD = Upper Diameter, BD = Bottom Diameter, "
+            "H = Height. For rectangular models (RECTANGLE, CUBE, LEGO, BOX): L = Length, W = Width, "
+            "H = Height. All prices are in INR."
+        ),
+    },
+    {
+        "chunk_id": "kaari-colours-finishes",
+        "content": (
+            "Standard finishes: Matte, Gloss, Orange Peel, Sand, Sand & Dotted, Stone Texture, Concrete, "
+            "Distressed Ink, Marble, and others depending on the model. Standard colours include Jet Black, "
+            "Carbon Black, Dark Charcoal, Grey, Pearl Beige, Light Ivory, Pure White, Bone White, Terracotta, "
+            "Red Rust, Teak, Concrete, and more. Custom RAL colours are available for orders of 10 or more "
+            "planters. Colour and texture can be customized as products are handcrafted."
+        ),
+    },
+    {
+        "chunk_id": "kaari-made-to-order",
+        "content": (
+            "All Kaari products are made to order. There is no ready stock. Delivery timelines depend on "
+            "order size and customization. Never claim stock availability. Never make unsupported promises "
+            "about delivery dates. The AI agent should confirm lead times with the Kaari sales team for "
+            "specific orders."
+        ),
+    },
+    {
+        "chunk_id": "kaari-pricing-policy",
+        "content": (
+            "Pricing tiers: 1-3 pieces: 20-25% retail discount (indicative range, the exact percentage "
+            "depends on specific product and order). 4-19 pieces: 30% retail discount (exact, standard). "
+            "20 or more pieces: bulk quote required, commercial discount confirmed by Kaari's sales team. "
+            "Never say 'this is your final price' for bulk orders. Always use the calculate_retail_price "
+            "tool for pricing. The tool returns indicative prices for small orders and a bulk_quote_required "
+            "flag for 20+ pieces."
+        ),
+    },
+    {
+        "chunk_id": "kaari-customisation",
+        "content": (
+            "Kaari offers fully customisable FRP planters. Customers can specify dimensions, colours, "
+            "finish, texture, and even branding. Custom RAL colours require a minimum of 10 pieces. "
+            "Because products are handcrafted, colour and texture can be adapted to customer preferences."
         ),
     },
     {
@@ -42,35 +92,18 @@ _KNOWLEDGE_CHUNKS: list[dict[str, str]] = [
         ),
     },
     {
-        "chunk_id": "kaari-colours-finishes",
+        "chunk_id": "kaari-ideal-for",
         "content": (
-            "Standard colour options include White, Charcoal, Matte Black, Gloss White, Terracotta, "
-            "Sage Green, Olive, Anthracite, Navy Blue, and Pastel Pink. Custom RAL colours are available "
-            "for orders of 10 or more planters. Finishes include Matte, Gloss, and Textured."
+            "Kaari planters are ideal for: offices, co-working spaces, hotel lobbies, restaurants, "
+            "residential balconies, garden landscaping, corporate campuses, retail stores, and event "
+            "decor. The lightweight FRP material makes them easy to relocate and rearrange."
         ),
     },
     {
-        "chunk_id": "kaari-customisation",
+        "chunk_id": "kaari-warranty",
         "content": (
-            "Kaari offers fully customisable FRP planters. Customers can specify dimensions, colours, "
-            "finish, and even branding. Custom orders have a minimum quantity of 10 units and a lead "
-            "time of approximately 21 business days."
-        ),
-    },
-    {
-        "chunk_id": "kaari-sizes",
-        "content": (
-            "Standard planter sizes range from 15cm desktop planters to 80cm large outdoor planters. "
-            "Dimensions are specified as length x width x height for rectangular planters or diameter x "
-            "height for round planters. Custom dimensions are available on request."
-        ),
-    },
-    {
-        "chunk_id": "kaari-pricing",
-        "content": (
-            "All pricing on the Kaari product catalog is in Indian Rupees (INR). Prices shown are per-unit "
-            "base prices. Volume discounts may be available for bulk orders. Custom planter pricing depends "
-            "on specifications and order quantity."
+            "All Kaari FRP products carry a 1-year manufacturing defect warranty. The warranty covers "
+            "manufacturing defects, not wear from misuse or improper installation."
         ),
     },
     {
@@ -82,20 +115,11 @@ _KNOWLEDGE_CHUNKS: list[dict[str, str]] = [
         ),
     },
     {
-        "chunk_id": "kaari-enquiry-faq",
+        "chunk_id": "kaari-price-range",
         "content": (
-            "Common enquiry topics: minimum order quantities (1 for standard, 10 for custom), delivery "
-            "timeline (standard stock ships within 5-7 business days, custom orders 21 business days), "
-            "payment terms (advance payment for custom orders), and warranty (1 year manufacturing "
-            "defect warranty on all FRP products)."
-        ),
-    },
-    {
-        "chunk_id": "kaari-ideal-for",
-        "content": (
-            "Kaari planters are ideal for: offices, co-working spaces, hotel lobbies, restaurants, "
-            "residential balconies, garden landscaping, corporate campuses, retail stores, and event "
-            "decor. The lightweight FRP material makes them easy to relocate and rearrange."
+            "Catalog retail prices range from around Rs 1,300 for the smallest models (e.g. ARLO variant) "
+            "up to Rs 63,000 for the largest specialty models (e.g. RECTANGLE 80x32). Most mid-range "
+            "planters fall between Rs 3,000 and Rs 15,000. All prices are in INR."
         ),
     },
 ]

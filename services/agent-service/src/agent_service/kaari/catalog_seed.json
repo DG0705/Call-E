@@ -1,0 +1,4200 @@
+[
+  {
+    "product_id": "KP-DEW",
+    "tenant_id": "kaari-planters",
+    "model_name": "DEW",
+    "collection": "Neo",
+    "description": "Conical FRP planter.",
+    "variants": [
+      {
+        "variant_id": "DEW-21",
+        "size_label": "21",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Light Ivory"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 7,
+        "upper_diameter": 8.5,
+        "lower_diameter": 6.5,
+        "height": 21
+      },
+      {
+        "variant_id": "DEW-28",
+        "size_label": "28",
+        "listed_price": 7300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Light Ivory"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 7,
+        "upper_diameter": 11,
+        "lower_diameter": 8.5,
+        "height": 28
+      },
+      {
+        "variant_id": "DEW-33",
+        "size_label": "33",
+        "listed_price": 9900,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Light Ivory"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 7,
+        "upper_diameter": 13.5,
+        "lower_diameter": 10,
+        "height": 33
+      },
+      {
+        "variant_id": "DEW-40",
+        "size_label": "40",
+        "listed_price": 14600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 7,
+        "upper_diameter": 16,
+        "lower_diameter": 12,
+        "height": 40
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-NOVA",
+    "tenant_id": "kaari-planters",
+    "model_name": "NOVA",
+    "collection": "Neo",
+    "description": "Tapered oval FRP planter.",
+    "variants": [
+      {
+        "variant_id": "NOVA-10",
+        "size_label": "10",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 9,
+        "upper_diameter": 7.5,
+        "lower_diameter": 8,
+        "height": 10
+      },
+      {
+        "variant_id": "NOVA-15",
+        "size_label": "15",
+        "listed_price": 6300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Beige"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 9,
+        "upper_diameter": 10,
+        "lower_diameter": 9.25,
+        "height": 15
+      },
+      {
+        "variant_id": "NOVA-22",
+        "size_label": "22",
+        "listed_price": 9400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Light Ivory"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 9,
+        "upper_diameter": 13,
+        "lower_diameter": 11,
+        "height": 22.5
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-HAVEN",
+    "tenant_id": "kaari-planters",
+    "model_name": "HAVEN",
+    "collection": "Neo",
+    "description": "Rectangular FRP planter.",
+    "variants": [
+      {
+        "variant_id": "HAVEN-9",
+        "size_label": "9",
+        "listed_price": 3100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 11,
+        "upper_diameter": 10,
+        "lower_diameter": 12,
+        "height": 9
+      },
+      {
+        "variant_id": "HAVEN-12",
+        "size_label": "12",
+        "listed_price": 5200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 11,
+        "upper_diameter": 14,
+        "lower_diameter": 17,
+        "height": 12.5
+      },
+      {
+        "variant_id": "HAVEN-16",
+        "size_label": "16",
+        "listed_price": 9400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 11,
+        "upper_diameter": 18.5,
+        "lower_diameter": 22,
+        "height": 16
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-ASH",
+    "tenant_id": "kaari-planters",
+    "model_name": "ASH",
+    "collection": "Neo",
+    "description": "Tapered FRP planter.",
+    "variants": [
+      {
+        "variant_id": "ASH-7",
+        "size_label": "7",
+        "listed_price": 2600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Jet Black"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 13,
+        "upper_diameter": 7,
+        "lower_diameter": 6,
+        "height": 7
+      },
+      {
+        "variant_id": "ASH-10",
+        "size_label": "10",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 13,
+        "upper_diameter": 10,
+        "lower_diameter": 9,
+        "height": 10
+      },
+      {
+        "variant_id": "ASH-13",
+        "size_label": "13",
+        "listed_price": 6300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 13,
+        "upper_diameter": 13.7,
+        "lower_diameter": 12,
+        "height": 13.5
+      },
+      {
+        "variant_id": "ASH-17",
+        "size_label": "17",
+        "listed_price": 10500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 13,
+        "upper_diameter": 18.5,
+        "lower_diameter": 16,
+        "height": 17.5
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-DIAMOND",
+    "tenant_id": "kaari-planters",
+    "model_name": "DIAMOND",
+    "collection": "Neo",
+    "description": "Diamond-shaped FRP planter.",
+    "variants": [
+      {
+        "variant_id": "DIAMOND-8",
+        "size_label": "8",
+        "listed_price": 3100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 15,
+        "upper_diameter": 9,
+        "lower_diameter": 6,
+        "height": 8.5
+      },
+      {
+        "variant_id": "DIAMOND-12",
+        "size_label": "12",
+        "listed_price": 6300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 15,
+        "upper_diameter": 13,
+        "lower_diameter": 9,
+        "height": 12
+      },
+      {
+        "variant_id": "DIAMOND-16",
+        "size_label": "16",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 15,
+        "upper_diameter": 17.5,
+        "lower_diameter": 12,
+        "height": 16
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-PINE",
+    "tenant_id": "kaari-planters",
+    "model_name": "PINE",
+    "collection": "Neo",
+    "description": "Conical FRP planter.",
+    "variants": [
+      {
+        "variant_id": "PINE-12",
+        "size_label": "12",
+        "listed_price": 3100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pale Green"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 17,
+        "upper_diameter": 11.5,
+        "lower_diameter": 6.5,
+        "height": 12
+      },
+      {
+        "variant_id": "PINE-15",
+        "size_label": "15",
+        "listed_price": 5200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pale Green"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 17,
+        "upper_diameter": 13.5,
+        "lower_diameter": 8,
+        "height": 15.5
+      },
+      {
+        "variant_id": "PINE-19",
+        "size_label": "19",
+        "listed_price": 9400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pale Green"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 17,
+        "upper_diameter": 17.5,
+        "lower_diameter": 10,
+        "height": 19.5
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-MOAI",
+    "tenant_id": "kaari-planters",
+    "model_name": "MOAI",
+    "collection": "Neo",
+    "description": "Large sculptural FRP planter.",
+    "variants": [
+      {
+        "variant_id": "MOAI-32",
+        "size_label": "32",
+        "listed_price": 17800,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 21,
+        "upper_diameter": 14.5,
+        "lower_diameter": 14.5,
+        "height": 32
+      },
+      {
+        "variant_id": "MOAI-39",
+        "size_label": "39",
+        "listed_price": 23000,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 21,
+        "upper_diameter": 18,
+        "lower_diameter": 18.5,
+        "height": 39.5
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-GAZE",
+    "tenant_id": "kaari-planters",
+    "model_name": "GAZE",
+    "collection": "Neo",
+    "description": "Elegant tapered FRP planter.",
+    "variants": [
+      {
+        "variant_id": "GAZE-28",
+        "size_label": "28",
+        "listed_price": 9400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Signal Black"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 23,
+        "upper_diameter": 12,
+        "lower_diameter": 9,
+        "height": 28.5
+      },
+      {
+        "variant_id": "GAZE-36",
+        "size_label": "36",
+        "listed_price": 13600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 23,
+        "upper_diameter": 15,
+        "lower_diameter": 9.5,
+        "height": 36
+      },
+      {
+        "variant_id": "GAZE-44",
+        "size_label": "44",
+        "listed_price": 16700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Signal Black"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 23,
+        "upper_diameter": 15,
+        "lower_diameter": 10,
+        "height": 44
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-KIMI",
+    "tenant_id": "kaari-planters",
+    "model_name": "KIMI",
+    "collection": "Neo",
+    "description": "Cylindrical concrete-texture FRP planter.",
+    "variants": [
+      {
+        "variant_id": "KIMI-17",
+        "size_label": "17",
+        "listed_price": 5200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Concrete",
+        "texture": "Concrete",
+        "catalog_page": 25,
+        "upper_diameter": 10,
+        "lower_diameter": 10,
+        "height": 17
+      },
+      {
+        "variant_id": "KIMI-24",
+        "size_label": "24",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Concrete",
+        "texture": "Concrete",
+        "catalog_page": 25,
+        "upper_diameter": 12,
+        "lower_diameter": 12,
+        "height": 24
+      },
+      {
+        "variant_id": "KIMI-30",
+        "size_label": "30",
+        "listed_price": 10500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Concrete",
+        "texture": "Concrete",
+        "catalog_page": 25,
+        "upper_diameter": 14,
+        "lower_diameter": 14,
+        "height": 30
+      },
+      {
+        "variant_id": "KIMI-40",
+        "size_label": "40",
+        "listed_price": 14600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Concrete",
+        "texture": "Concrete",
+        "catalog_page": 25,
+        "upper_diameter": 16,
+        "lower_diameter": 16,
+        "height": 40
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-AQUA",
+    "tenant_id": "kaari-planters",
+    "model_name": "AQUA",
+    "collection": "Neo",
+    "description": "Versatile FRP planter range.",
+    "variants": [
+      {
+        "variant_id": "AQUA-12",
+        "size_label": "12",
+        "listed_price": 3700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 27,
+        "upper_diameter": 10,
+        "lower_diameter": 6.5,
+        "height": 12.5
+      },
+      {
+        "variant_id": "AQUA-16",
+        "size_label": "16",
+        "listed_price": 6300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Light Ivory"
+        ],
+        "finish": "Stone Texture",
+        "texture": "Stone Texture",
+        "catalog_page": 27,
+        "upper_diameter": 13.5,
+        "lower_diameter": 8,
+        "height": 16.5
+      },
+      {
+        "variant_id": "AQUA-20",
+        "size_label": "20",
+        "listed_price": 10500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 27,
+        "upper_diameter": 17,
+        "lower_diameter": 10.5,
+        "height": 20.5
+      },
+      {
+        "variant_id": "AQUA-24",
+        "size_label": "24",
+        "listed_price": 14600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Light Ivory"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 27,
+        "upper_diameter": 20.5,
+        "lower_diameter": 12.5,
+        "height": 24.5
+      },
+      {
+        "variant_id": "AQUA-28",
+        "size_label": "28",
+        "listed_price": 20900,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 27,
+        "upper_diameter": 23.5,
+        "lower_diameter": 15,
+        "height": 28.5
+      },
+      {
+        "variant_id": "AQUA-32",
+        "size_label": "32",
+        "listed_price": 24000,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Light Ivory"
+        ],
+        "finish": "Sand",
+        "texture": "Sand",
+        "catalog_page": 27,
+        "upper_diameter": 27.5,
+        "lower_diameter": 17,
+        "height": 32.5
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-OASIS",
+    "tenant_id": "kaari-planters",
+    "model_name": "OASIS",
+    "collection": "Neo",
+    "description": "Tapered FRP planter.",
+    "variants": [
+      {
+        "variant_id": "OASIS-8",
+        "size_label": "8",
+        "listed_price": 4700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Sand",
+        "texture": "Sand",
+        "catalog_page": 29,
+        "upper_diameter": 14,
+        "lower_diameter": 6.5,
+        "height": 8.5
+      },
+      {
+        "variant_id": "OASIS-10",
+        "size_label": "10",
+        "listed_price": 6800,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Sand & Dotted",
+        "texture": "Sand & Dotted",
+        "catalog_page": 29,
+        "upper_diameter": 17.5,
+        "lower_diameter": 7.5,
+        "height": 10.5
+      },
+      {
+        "variant_id": "OASIS-12",
+        "size_label": "12",
+        "listed_price": 10500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 29,
+        "upper_diameter": 23,
+        "lower_diameter": 9,
+        "height": 12
+      },
+      {
+        "variant_id": "OASIS-14",
+        "size_label": "14",
+        "listed_price": 13600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 29,
+        "upper_diameter": 26.5,
+        "lower_diameter": 10,
+        "height": 14
+      },
+      {
+        "variant_id": "OASIS-16",
+        "size_label": "16",
+        "listed_price": 18800,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 29,
+        "upper_diameter": 30,
+        "lower_diameter": 12.5,
+        "height": 16
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-CORAL",
+    "tenant_id": "kaari-planters",
+    "model_name": "CORAL",
+    "collection": "Neo",
+    "description": "Wide FRP planter.",
+    "variants": [
+      {
+        "variant_id": "CORAL-14",
+        "size_label": "14",
+        "listed_price": 5200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Orange Brown"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 31,
+        "upper_diameter": 9.5,
+        "lower_diameter": 14,
+        "height": 14
+      },
+      {
+        "variant_id": "CORAL-18",
+        "size_label": "18",
+        "listed_price": 7300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Sand & Dotted",
+        "texture": "Sand & Dotted",
+        "catalog_page": 31,
+        "upper_diameter": 11.5,
+        "lower_diameter": 18,
+        "height": 18
+      },
+      {
+        "variant_id": "CORAL-24",
+        "size_label": "24",
+        "listed_price": 13100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 31,
+        "upper_diameter": 15.5,
+        "lower_diameter": 24,
+        "height": 24
+      },
+      {
+        "variant_id": "CORAL-30",
+        "size_label": "30",
+        "listed_price": 20900,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Yellow Grey"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 31,
+        "upper_diameter": 19.5,
+        "lower_diameter": 30,
+        "height": 30
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-CANOE",
+    "tenant_id": "kaari-planters",
+    "model_name": "CANOE",
+    "collection": "Neo",
+    "description": "Elongated FRP planter.",
+    "variants": [
+      {
+        "variant_id": "CANOE-8",
+        "size_label": "8",
+        "listed_price": 5200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 33,
+        "upper_diameter": 29,
+        "lower_diameter": 10,
+        "height": 8.5
+      },
+      {
+        "variant_id": "CANOE-11",
+        "size_label": "11",
+        "listed_price": 7300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Oyster White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 33,
+        "upper_diameter": 33,
+        "lower_diameter": 13,
+        "height": 11
+      },
+      {
+        "variant_id": "CANOE-13",
+        "size_label": "13",
+        "listed_price": 10500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 33,
+        "upper_diameter": 39,
+        "lower_diameter": 16,
+        "height": 13.5
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-MARVEL",
+    "tenant_id": "kaari-planters",
+    "model_name": "MARVEL",
+    "collection": "Neo",
+    "description": "Statement FRP planter.",
+    "variants": [
+      {
+        "variant_id": "MARVEL-18",
+        "size_label": "18",
+        "listed_price": 13600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 35,
+        "upper_diameter": 17,
+        "lower_diameter": 21,
+        "height": 18
+      },
+      {
+        "variant_id": "MARVEL-30",
+        "size_label": "30",
+        "listed_price": 12500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Oyster White"
+        ],
+        "finish": "Sand & Dotted",
+        "texture": "Sand & Dotted",
+        "catalog_page": 35,
+        "upper_diameter": 12,
+        "lower_diameter": 12,
+        "height": 30
+      },
+      {
+        "variant_id": "MARVEL-36",
+        "size_label": "36",
+        "listed_price": 14600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 35,
+        "upper_diameter": 14,
+        "lower_diameter": 13,
+        "height": 36
+      },
+      {
+        "variant_id": "MARVEL-44",
+        "size_label": "44",
+        "listed_price": 18800,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Oyster White"
+        ],
+        "finish": "Sand & Dotted",
+        "texture": "Sand & Dotted",
+        "catalog_page": 35,
+        "upper_diameter": 17,
+        "lower_diameter": 14.5,
+        "height": 44
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-POP",
+    "tenant_id": "kaari-planters",
+    "model_name": "POP",
+    "collection": "Neo",
+    "description": "Compact FRP planter.",
+    "variants": [
+      {
+        "variant_id": "POP-11",
+        "size_label": "11",
+        "listed_price": 3100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Orange Peel & Dotted",
+        "texture": "Orange Peel & Dotted",
+        "catalog_page": 37,
+        "upper_diameter": 10,
+        "lower_diameter": 11,
+        "height": 11
+      },
+      {
+        "variant_id": "POP-15",
+        "size_label": "15",
+        "listed_price": 5200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 37,
+        "upper_diameter": 13,
+        "lower_diameter": 14,
+        "height": 15
+      },
+      {
+        "variant_id": "POP-20",
+        "size_label": "20",
+        "listed_price": 6300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Light Ivory"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 37,
+        "upper_diameter": 14,
+        "lower_diameter": 15,
+        "height": 20
+      },
+      {
+        "variant_id": "POP-25",
+        "size_label": "25",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Light Ivory"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 37,
+        "upper_diameter": 14.5,
+        "lower_diameter": 16,
+        "height": 25
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-PEARL",
+    "tenant_id": "kaari-planters",
+    "model_name": "PEARL",
+    "collection": "Neo",
+    "description": "Elegant round FRP planter.",
+    "variants": [
+      {
+        "variant_id": "PEARL-14",
+        "size_label": "14",
+        "listed_price": 4700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Olive Green"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 39,
+        "upper_diameter": 11,
+        "lower_diameter": 10.25,
+        "height": 14.5
+      },
+      {
+        "variant_id": "PEARL-24",
+        "size_label": "24",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 39,
+        "upper_diameter": 13,
+        "lower_diameter": 16,
+        "height": 24.5
+      },
+      {
+        "variant_id": "PEARL-30",
+        "size_label": "30",
+        "listed_price": 12500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Olive Green"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 39,
+        "upper_diameter": 16,
+        "lower_diameter": 14.5,
+        "height": 30
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-SCALE",
+    "tenant_id": "kaari-planters",
+    "model_name": "SCALE",
+    "collection": "Neo",
+    "description": "Textured FRP planter.",
+    "variants": [
+      {
+        "variant_id": "SCALE-18",
+        "size_label": "18",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 41,
+        "upper_diameter": 9.5,
+        "lower_diameter": 6,
+        "height": 18
+      },
+      {
+        "variant_id": "SCALE-23",
+        "size_label": "23",
+        "listed_price": 6300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Jet Black"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 41,
+        "upper_diameter": 12,
+        "lower_diameter": 7.5,
+        "height": 23
+      },
+      {
+        "variant_id": "SCALE-28",
+        "size_label": "28",
+        "listed_price": 8900,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 41,
+        "upper_diameter": 15,
+        "lower_diameter": 9,
+        "height": 28.5
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-LUSH",
+    "tenant_id": "kaari-planters",
+    "model_name": "LUSH",
+    "collection": "Neo",
+    "description": "Tall elegant FRP planter.",
+    "variants": [
+      {
+        "variant_id": "LUSH-14",
+        "size_label": "14",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 43,
+        "upper_diameter": 12.5,
+        "lower_diameter": 7,
+        "height": 14
+      },
+      {
+        "variant_id": "LUSH-17",
+        "size_label": "17",
+        "listed_price": 7300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 43,
+        "upper_diameter": 16,
+        "lower_diameter": 9,
+        "height": 17
+      },
+      {
+        "variant_id": "LUSH-21",
+        "size_label": "21",
+        "listed_price": 10500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 43,
+        "upper_diameter": 19,
+        "lower_diameter": 10.5,
+        "height": 21
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-VERDURE",
+    "tenant_id": "kaari-planters",
+    "model_name": "VERDURE",
+    "collection": "Neo",
+    "description": "Large FRP planter.",
+    "variants": [
+      {
+        "variant_id": "VERDURE-16",
+        "size_label": "16",
+        "listed_price": 5700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 45,
+        "upper_diameter": 10.5,
+        "lower_diameter": 10,
+        "height": 16
+      },
+      {
+        "variant_id": "VERDURE-25",
+        "size_label": "25",
+        "listed_price": 12500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 45,
+        "upper_diameter": 17,
+        "lower_diameter": 16,
+        "height": 25.5
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-PEAR",
+    "tenant_id": "kaari-planters",
+    "model_name": "PEAR",
+    "collection": "Neo",
+    "description": "Pear-shaped FRP planter.",
+    "variants": [
+      {
+        "variant_id": "PEAR-15",
+        "size_label": "15",
+        "listed_price": 5200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 47,
+        "upper_diameter": 10.5,
+        "lower_diameter": 14,
+        "height": 15
+      },
+      {
+        "variant_id": "PEAR-20",
+        "size_label": "20",
+        "listed_price": 6300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 47,
+        "upper_diameter": 11,
+        "lower_diameter": 15,
+        "height": 20
+      },
+      {
+        "variant_id": "PEAR-26",
+        "size_label": "26",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Sand & Dotted",
+        "texture": "Sand & Dotted",
+        "catalog_page": 47,
+        "upper_diameter": 12,
+        "lower_diameter": 16,
+        "height": 26
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-BUENO",
+    "tenant_id": "kaari-planters",
+    "model_name": "BUENO",
+    "collection": "Heritage",
+    "description": "Classic FRP planter.",
+    "variants": [
+      {
+        "variant_id": "BUENO-14",
+        "size_label": "14",
+        "listed_price": 6300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 19,
+        "upper_diameter": 12,
+        "lower_diameter": 7,
+        "height": 14
+      },
+      {
+        "variant_id": "BUENO-18",
+        "size_label": "18",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 19,
+        "upper_diameter": 15,
+        "lower_diameter": 11,
+        "height": 18
+      },
+      {
+        "variant_id": "BUENO-29",
+        "size_label": "29",
+        "listed_price": 12500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Oyster White"
+        ],
+        "finish": "Stone Texture",
+        "texture": "Stone Texture",
+        "catalog_page": 19,
+        "upper_diameter": 14,
+        "lower_diameter": 8.5,
+        "height": 29
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-URN",
+    "tenant_id": "kaari-planters",
+    "model_name": "URN",
+    "collection": "Heritage",
+    "description": "Heritage urn-shaped FRP planter.",
+    "variants": [
+      {
+        "variant_id": "URN-17",
+        "size_label": "17",
+        "listed_price": 13600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Stone Texture",
+        "texture": "Stone Texture",
+        "catalog_page": 49,
+        "upper_diameter": 18,
+        "lower_diameter": 6,
+        "height": 17.5
+      },
+      {
+        "variant_id": "URN-37",
+        "size_label": "37",
+        "listed_price": 17800,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Stone Texture",
+        "texture": "Stone Texture",
+        "catalog_page": 49,
+        "upper_diameter": 14,
+        "lower_diameter": 6,
+        "height": 39
+      },
+      {
+        "variant_id": "URN-52",
+        "size_label": "52",
+        "listed_price": 41800,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Stone Texture",
+        "texture": "Stone Texture",
+        "catalog_page": 49,
+        "upper_diameter": 23,
+        "lower_diameter": 8.5,
+        "height": 52
+      },
+      {
+        "variant_id": "URN-67",
+        "size_label": "67",
+        "listed_price": 104500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Stone Texture",
+        "texture": "Stone Texture",
+        "catalog_page": 49,
+        "upper_diameter": 34.5,
+        "lower_diameter": 15,
+        "height": 67
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-AYU",
+    "tenant_id": "kaari-planters",
+    "model_name": "AYU",
+    "collection": "Heritage",
+    "description": "Heritage FRP planter with Distressed Ink finish.",
+    "variants": [
+      {
+        "variant_id": "AYU-18",
+        "size_label": "18",
+        "listed_price": 12500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Distressed Ink",
+        "texture": "Distressed Ink",
+        "catalog_page": 51,
+        "upper_diameter": 19,
+        "lower_diameter": 13,
+        "height": 18
+      },
+      {
+        "variant_id": "AYU-27",
+        "size_label": "27",
+        "listed_price": 21900,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Distressed Ink",
+        "texture": "Distressed Ink",
+        "catalog_page": 51,
+        "upper_diameter": 22,
+        "lower_diameter": 17,
+        "height": 27.5
+      },
+      {
+        "variant_id": "AYU-47",
+        "size_label": "47",
+        "listed_price": 41800,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Distressed Ink",
+        "texture": "Distressed Ink",
+        "catalog_page": 51,
+        "upper_diameter": 26,
+        "lower_diameter": 15,
+        "height": 47
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-AURA",
+    "tenant_id": "kaari-planters",
+    "model_name": "AURA",
+    "collection": "Heritage",
+    "description": "Heritage oval FRP planter with Sand Texture base.",
+    "variants": [
+      {
+        "variant_id": "AURA-24",
+        "size_label": "24",
+        "listed_price": 13600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Gold"
+        ],
+        "finish": "Distressed Ink",
+        "texture": "Distressed Ink",
+        "catalog_page": 53,
+        "upper_diameter": 19,
+        "lower_diameter": 12,
+        "height": 24
+      },
+      {
+        "variant_id": "AURA-40",
+        "size_label": "40",
+        "listed_price": 31400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Gold"
+        ],
+        "finish": "Distressed Ink",
+        "texture": "Distressed Ink",
+        "catalog_page": 53,
+        "upper_diameter": 20,
+        "lower_diameter": 12,
+        "height": 40
+      },
+      {
+        "variant_id": "AURA-56",
+        "size_label": "56",
+        "listed_price": 46000,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Gold"
+        ],
+        "finish": "Distressed Ink",
+        "texture": "Distressed Ink",
+        "catalog_page": 53,
+        "upper_diameter": 27,
+        "lower_diameter": 17,
+        "height": 56
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-MANDALA",
+    "tenant_id": "kaari-planters",
+    "model_name": "MANDALA",
+    "collection": "Heritage",
+    "description": "Heritage oval FRP planter.",
+    "variants": [
+      {
+        "variant_id": "MANDALA-18",
+        "size_label": "18",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 55,
+        "upper_diameter": 17,
+        "lower_diameter": 8,
+        "height": 18
+      },
+      {
+        "variant_id": "MANDALA-32",
+        "size_label": "32",
+        "listed_price": 19900,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 55,
+        "upper_diameter": 23,
+        "lower_diameter": 13,
+        "height": 32
+      },
+      {
+        "variant_id": "MANDALA-47",
+        "size_label": "47",
+        "listed_price": 37600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 55,
+        "upper_diameter": 26,
+        "lower_diameter": 17,
+        "height": 47
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-OLIVE",
+    "tenant_id": "kaari-planters",
+    "model_name": "OLIVE",
+    "collection": "Heritage",
+    "description": "Small FRP planter.",
+    "variants": [
+      {
+        "variant_id": "OLIVE-8",
+        "size_label": "8",
+        "listed_price": 2600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 57,
+        "upper_diameter": 4,
+        "lower_diameter": 4,
+        "height": 8
+      },
+      {
+        "variant_id": "OLIVE-11",
+        "size_label": "11",
+        "listed_price": 3100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 57,
+        "upper_diameter": 9,
+        "lower_diameter": 6,
+        "height": 11.5
+      },
+      {
+        "variant_id": "OLIVE-15",
+        "size_label": "15",
+        "listed_price": 6300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 57,
+        "upper_diameter": 12,
+        "lower_diameter": 8,
+        "height": 15.5
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-BELLA",
+    "tenant_id": "kaari-planters",
+    "model_name": "BELLA",
+    "collection": "Heritage",
+    "description": "Heritage FRP planter.",
+    "variants": [
+      {
+        "variant_id": "BELLA-12",
+        "size_label": "12",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Oyster White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 59,
+        "upper_diameter": 13.5,
+        "lower_diameter": 9,
+        "height": 12.5
+      },
+      {
+        "variant_id": "BELLA-18",
+        "size_label": "18",
+        "listed_price": 6300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 59,
+        "upper_diameter": 18,
+        "lower_diameter": 11,
+        "height": 18
+      },
+      {
+        "variant_id": "BELLA-21",
+        "size_label": "21",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Oyster White"
+        ],
+        "finish": "Sand",
+        "texture": "Sand",
+        "catalog_page": 59,
+        "upper_diameter": 22,
+        "lower_diameter": 13,
+        "height": 21
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-ASPEN",
+    "tenant_id": "kaari-planters",
+    "model_name": "ASPEN",
+    "collection": "Heritage",
+    "description": "Concrete-texture FRP planter.",
+    "variants": [
+      {
+        "variant_id": "ASPEN-18",
+        "size_label": "18",
+        "listed_price": 3700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Concrete",
+        "texture": "Concrete",
+        "catalog_page": 61,
+        "upper_diameter": 8,
+        "lower_diameter": 4.5,
+        "height": 18
+      },
+      {
+        "variant_id": "ASPEN-24",
+        "size_label": "24",
+        "listed_price": 5200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Concrete",
+        "texture": "Concrete",
+        "catalog_page": 61,
+        "upper_diameter": 10.5,
+        "lower_diameter": 6,
+        "height": 24
+      },
+      {
+        "variant_id": "ASPEN-30",
+        "size_label": "30",
+        "listed_price": 6800,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Concrete",
+        "texture": "Concrete",
+        "catalog_page": 61,
+        "upper_diameter": 12,
+        "lower_diameter": 6.5,
+        "height": 30.5
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-BIRCH",
+    "tenant_id": "kaari-planters",
+    "model_name": "BIRCH",
+    "collection": "Heritage",
+    "description": "Cylindrical FRP planter (hollow body).",
+    "variants": [
+      {
+        "variant_id": "BIRCH-10",
+        "size_label": "10",
+        "listed_price": 4700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 63,
+        "upper_diameter": 10,
+        "lower_diameter": 7,
+        "height": 11.5
+      },
+      {
+        "variant_id": "BIRCH-20",
+        "size_label": "20",
+        "listed_price": 5700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Oyster White"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 63,
+        "upper_diameter": 10,
+        "lower_diameter": 7,
+        "height": 20
+      },
+      {
+        "variant_id": "BIRCH-30",
+        "size_label": "30",
+        "listed_price": 7300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 63,
+        "upper_diameter": 10,
+        "lower_diameter": 7,
+        "height": 30
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-BIRCH-FB",
+    "tenant_id": "kaari-planters",
+    "model_name": "BIRCH-FB",
+    "collection": "Heritage",
+    "description": "Cylindrical FRP planter (full body).",
+    "variants": [
+      {
+        "variant_id": "BIRCH-FB-32",
+        "size_label": "32",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Concrete",
+        "texture": "Concrete",
+        "catalog_page": 65,
+        "upper_diameter": 13,
+        "lower_diameter": 13,
+        "height": 32
+      },
+      {
+        "variant_id": "BIRCH-FB-40",
+        "size_label": "40",
+        "listed_price": 12500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Concrete",
+        "texture": "Concrete",
+        "catalog_page": 65,
+        "upper_diameter": 13,
+        "lower_diameter": 13,
+        "height": 40
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-MEADOW",
+    "tenant_id": "kaari-planters",
+    "model_name": "MEADOW",
+    "collection": "Heritage",
+    "description": "Organic-shaped FRP planter.",
+    "variants": [
+      {
+        "variant_id": "MEADOW-7",
+        "size_label": "7",
+        "listed_price": 2500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Beige"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 67,
+        "upper_diameter": 12,
+        "lower_diameter": 7,
+        "height": 7
+      },
+      {
+        "variant_id": "MEADOW-8",
+        "size_label": "8",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 67,
+        "upper_diameter": 10,
+        "lower_diameter": 10,
+        "height": 8
+      },
+      {
+        "variant_id": "MEADOW-11",
+        "size_label": "11",
+        "listed_price": 7300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 67,
+        "upper_diameter": 20,
+        "lower_diameter": 12,
+        "height": 11
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-COVE",
+    "tenant_id": "kaari-planters",
+    "model_name": "COVE",
+    "collection": "Heritage",
+    "description": "Rounded FRP planter.",
+    "variants": [
+      {
+        "variant_id": "COVE-12",
+        "size_label": "12",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 69,
+        "upper_diameter": 11,
+        "lower_diameter": 9,
+        "height": 12.5
+      },
+      {
+        "variant_id": "COVE-20",
+        "size_label": "20",
+        "listed_price": 7300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 69,
+        "upper_diameter": 17,
+        "lower_diameter": 10,
+        "height": 20
+      },
+      {
+        "variant_id": "COVE-25",
+        "size_label": "25",
+        "listed_price": 12500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 69,
+        "upper_diameter": 20.5,
+        "lower_diameter": 11,
+        "height": 25
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-SNOWDROP-FB",
+    "tenant_id": "kaari-planters",
+    "model_name": "SNOWDROP-FB",
+    "collection": "Heritage",
+    "description": "FRP planter (full body).",
+    "variants": [
+      {
+        "variant_id": "SNOWDROP-FB-27",
+        "size_label": "27",
+        "listed_price": 10500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Orange Brown"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 71,
+        "upper_diameter": 14,
+        "lower_diameter": 10,
+        "height": 27.5
+      },
+      {
+        "variant_id": "SNOWDROP-FB-36",
+        "size_label": "36",
+        "listed_price": 13600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 71,
+        "upper_diameter": 15,
+        "lower_diameter": 10.5,
+        "height": 36
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-SNOWDROP",
+    "tenant_id": "kaari-planters",
+    "model_name": "SNOWDROP",
+    "collection": "Heritage",
+    "description": "FRP planter (hollow body).",
+    "variants": [
+      {
+        "variant_id": "SNOWDROP-11",
+        "size_label": "11",
+        "listed_price": 3100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 73,
+        "upper_diameter": 10,
+        "lower_diameter": 4,
+        "height": 11
+      },
+      {
+        "variant_id": "SNOWDROP-16",
+        "size_label": "16",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey White"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 73,
+        "upper_diameter": 12,
+        "lower_diameter": 4.75,
+        "height": 16
+      },
+      {
+        "variant_id": "SNOWDROP-22",
+        "size_label": "22",
+        "listed_price": 6800,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 73,
+        "upper_diameter": 14,
+        "lower_diameter": 5.75,
+        "height": 22
+      },
+      {
+        "variant_id": "SNOWDROP-30",
+        "size_label": "30",
+        "listed_price": 11500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Orange Brown"
+        ],
+        "finish": "Sand & Dotted",
+        "texture": "Sand & Dotted",
+        "catalog_page": 73,
+        "upper_diameter": 16,
+        "lower_diameter": 6.5,
+        "height": 30
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-PRISTINE",
+    "tenant_id": "kaari-planters",
+    "model_name": "PRISTINE",
+    "collection": "Heritage",
+    "description": "Elegant tapered FRP planter.",
+    "variants": [
+      {
+        "variant_id": "PRISTINE-12",
+        "size_label": "12",
+        "listed_price": 4600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Papyrus White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 75,
+        "upper_diameter": 14,
+        "lower_diameter": 5,
+        "height": 12
+      },
+      {
+        "variant_id": "PRISTINE-16",
+        "size_label": "16",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 75,
+        "upper_diameter": 19,
+        "lower_diameter": 7,
+        "height": 16
+      },
+      {
+        "variant_id": "PRISTINE-19",
+        "size_label": "19",
+        "listed_price": 10500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 75,
+        "upper_diameter": 22,
+        "lower_diameter": 7.5,
+        "height": 19
+      },
+      {
+        "variant_id": "PRISTINE-23",
+        "size_label": "23",
+        "listed_price": 15700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Papyrus White"
+        ],
+        "finish": "Sand & Dotted",
+        "texture": "Sand & Dotted",
+        "catalog_page": 75,
+        "upper_diameter": 27,
+        "lower_diameter": 10,
+        "height": 23
+      },
+      {
+        "variant_id": "PRISTINE-28",
+        "size_label": "28",
+        "listed_price": 24000,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 75,
+        "upper_diameter": 33,
+        "lower_diameter": 12,
+        "height": 28
+      },
+      {
+        "variant_id": "PRISTINE-32",
+        "size_label": "32",
+        "listed_price": 33400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 75,
+        "upper_diameter": 38,
+        "lower_diameter": 13.5,
+        "height": 32
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-ORBIT",
+    "tenant_id": "kaari-planters",
+    "model_name": "ORBIT",
+    "collection": "Heritage",
+    "description": "Orb-shaped FRP planter.",
+    "variants": [
+      {
+        "variant_id": "ORBIT-10",
+        "size_label": "10",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Olive Green"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 77,
+        "upper_diameter": 14,
+        "lower_diameter": 5,
+        "height": 10
+      },
+      {
+        "variant_id": "ORBIT-14",
+        "size_label": "14",
+        "listed_price": 7800,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Beige"
+        ],
+        "finish": "Sand",
+        "texture": "Sand",
+        "catalog_page": 77,
+        "upper_diameter": 19.5,
+        "lower_diameter": 7,
+        "height": 14
+      },
+      {
+        "variant_id": "ORBIT-18",
+        "size_label": "18",
+        "listed_price": 10500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Light Ivory"
+        ],
+        "finish": "Sand & Dotted",
+        "texture": "Sand & Dotted",
+        "catalog_page": 77,
+        "upper_diameter": 25,
+        "lower_diameter": 8.5,
+        "height": 18
+      },
+      {
+        "variant_id": "ORBIT-22",
+        "size_label": "22",
+        "listed_price": 16200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 77,
+        "upper_diameter": 30.5,
+        "lower_diameter": 10,
+        "height": 22
+      },
+      {
+        "variant_id": "ORBIT-26",
+        "size_label": "26",
+        "listed_price": 25100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Light Ivory"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 77,
+        "upper_diameter": 36,
+        "lower_diameter": 12,
+        "height": 26
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-ARLO",
+    "tenant_id": "kaari-planters",
+    "model_name": "ARLO",
+    "collection": "Heritage",
+    "description": "Versatile tapered FRP planter.",
+    "variants": [
+      {
+        "variant_id": "ARLO-10",
+        "size_label": "10",
+        "listed_price": 3100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Ivory"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 79,
+        "upper_diameter": 10,
+        "lower_diameter": 5.5,
+        "height": 10
+      },
+      {
+        "variant_id": "ARLO-12",
+        "size_label": "12",
+        "listed_price": 3600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Gold"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 79,
+        "upper_diameter": 12,
+        "lower_diameter": 6.5,
+        "height": 12
+      },
+      {
+        "variant_id": "ARLO-15",
+        "size_label": "15",
+        "listed_price": 5200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 79,
+        "upper_diameter": 15,
+        "lower_diameter": 8.5,
+        "height": 15
+      },
+      {
+        "variant_id": "ARLO-18",
+        "size_label": "18",
+        "listed_price": 7300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Sand & Dotted",
+        "texture": "Sand & Dotted",
+        "catalog_page": 79,
+        "upper_diameter": 18,
+        "lower_diameter": 10,
+        "height": 18
+      },
+      {
+        "variant_id": "ARLO-24A",
+        "size_label": "24A",
+        "listed_price": 14600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Olive Green"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 79,
+        "upper_diameter": 24,
+        "lower_diameter": 13,
+        "height": 24
+      },
+      {
+        "variant_id": "ARLO-24B",
+        "size_label": "24B",
+        "listed_price": 11500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 79,
+        "upper_diameter": 20,
+        "lower_diameter": 17,
+        "height": 24
+      },
+      {
+        "variant_id": "ARLO-30",
+        "size_label": "30",
+        "listed_price": 23000,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 79,
+        "upper_diameter": 30,
+        "lower_diameter": 17,
+        "height": 30
+      },
+      {
+        "variant_id": "ARLO-36",
+        "size_label": "36",
+        "listed_price": 35500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Yellow Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 79,
+        "upper_diameter": 36,
+        "lower_diameter": 20,
+        "height": 36
+      },
+      {
+        "variant_id": "ARLO-40",
+        "size_label": "40",
+        "listed_price": 36600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey White"
+        ],
+        "finish": "Sand",
+        "texture": "Sand",
+        "catalog_page": 79,
+        "upper_diameter": 30,
+        "lower_diameter": 20,
+        "height": 40
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-BLUSH",
+    "tenant_id": "kaari-planters",
+    "model_name": "BLUSH",
+    "collection": "Heritage",
+    "description": "Graceful tapered FRP planter.",
+    "variants": [
+      {
+        "variant_id": "BLUSH-8",
+        "size_label": "8",
+        "listed_price": 2100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 81,
+        "upper_diameter": 7,
+        "lower_diameter": 4.5,
+        "height": 8
+      },
+      {
+        "variant_id": "BLUSH-12",
+        "size_label": "12",
+        "listed_price": 3100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 81,
+        "upper_diameter": 10,
+        "lower_diameter": 6.5,
+        "height": 12.5
+      },
+      {
+        "variant_id": "BLUSH-15",
+        "size_label": "15",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 81,
+        "upper_diameter": 11,
+        "lower_diameter": 7,
+        "height": 15
+      },
+      {
+        "variant_id": "BLUSH-18",
+        "size_label": "18",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Yellow Grey"
+        ],
+        "finish": "Sand & Dotted",
+        "texture": "Sand & Dotted",
+        "catalog_page": 81,
+        "upper_diameter": 15,
+        "lower_diameter": 11,
+        "height": 18
+      },
+      {
+        "variant_id": "BLUSH-24",
+        "size_label": "24",
+        "listed_price": 11500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 81,
+        "upper_diameter": 20,
+        "lower_diameter": 15,
+        "height": 24
+      },
+      {
+        "variant_id": "BLUSH-34",
+        "size_label": "34",
+        "listed_price": 24000,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Olive Green"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 81,
+        "upper_diameter": 27.5,
+        "lower_diameter": 16,
+        "height": 34
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-BLOSSOM",
+    "tenant_id": "kaari-planters",
+    "model_name": "BLOSSOM",
+    "collection": "Heritage",
+    "description": "Elegant FRP planter.",
+    "variants": [
+      {
+        "variant_id": "BLOSSOM-10",
+        "size_label": "10",
+        "listed_price": 2600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 83,
+        "upper_diameter": 9,
+        "lower_diameter": 4.5,
+        "height": 10
+      },
+      {
+        "variant_id": "BLOSSOM-14",
+        "size_label": "14",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pale Green"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 83,
+        "upper_diameter": 12,
+        "lower_diameter": 6.5,
+        "height": 14
+      },
+      {
+        "variant_id": "BLOSSOM-18",
+        "size_label": "18",
+        "listed_price": 5700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Sand & Dotted",
+        "texture": "Sand & Dotted",
+        "catalog_page": 83,
+        "upper_diameter": 16,
+        "lower_diameter": 8.5,
+        "height": 18
+      },
+      {
+        "variant_id": "BLOSSOM-23",
+        "size_label": "23",
+        "listed_price": 9400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Yellow Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 83,
+        "upper_diameter": 20,
+        "lower_diameter": 10.5,
+        "height": 23
+      },
+      {
+        "variant_id": "BLOSSOM-28",
+        "size_label": "28",
+        "listed_price": 13600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Olive Green"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 83,
+        "upper_diameter": 24.5,
+        "lower_diameter": 12.5,
+        "height": 28
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-KAIA",
+    "tenant_id": "kaari-planters",
+    "model_name": "KAIA",
+    "collection": "Heritage",
+    "description": "Tall tapered FRP planter.",
+    "variants": [
+      {
+        "variant_id": "KAIA-20",
+        "size_label": "20",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 85,
+        "upper_diameter": 10,
+        "lower_diameter": 6,
+        "height": 20
+      },
+      {
+        "variant_id": "KAIA-27",
+        "size_label": "27",
+        "listed_price": 7300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 85,
+        "upper_diameter": 13.5,
+        "lower_diameter": 8,
+        "height": 27
+      },
+      {
+        "variant_id": "KAIA-34",
+        "size_label": "34",
+        "listed_price": 12500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Sand & Dotted",
+        "texture": "Sand & Dotted",
+        "catalog_page": 85,
+        "upper_diameter": 17,
+        "lower_diameter": 10,
+        "height": 34
+      },
+      {
+        "variant_id": "KAIA-42",
+        "size_label": "42",
+        "listed_price": 19900,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 85,
+        "upper_diameter": 21,
+        "lower_diameter": 12.5,
+        "height": 42
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-PYRAMID",
+    "tenant_id": "kaari-planters",
+    "model_name": "PYRAMID",
+    "collection": "Heritage",
+    "description": "Pyramid-shaped FRP planter.",
+    "variants": [
+      {
+        "variant_id": "PYRAMID-18",
+        "size_label": "18",
+        "listed_price": 3700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pearl Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 87,
+        "upper_diameter": 9.5,
+        "lower_diameter": 6,
+        "height": 18
+      },
+      {
+        "variant_id": "PYRAMID-24",
+        "size_label": "24",
+        "listed_price": 6300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Ivory"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 87,
+        "upper_diameter": 12.5,
+        "lower_diameter": 7,
+        "height": 24.5
+      },
+      {
+        "variant_id": "PYRAMID-31",
+        "size_label": "31",
+        "listed_price": 10500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 87,
+        "upper_diameter": 16.5,
+        "lower_diameter": 10,
+        "height": 31
+      },
+      {
+        "variant_id": "PYRAMID-40",
+        "size_label": "40",
+        "listed_price": 16700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Ivory"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 87,
+        "upper_diameter": 21.5,
+        "lower_diameter": 13,
+        "height": 40
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-EVEREST",
+    "tenant_id": "kaari-planters",
+    "model_name": "EVEREST",
+    "collection": "Linea",
+    "description": "Mountain-inspired FRP planter.",
+    "variants": [
+      {
+        "variant_id": "EVEREST-16",
+        "size_label": "16",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 89,
+        "upper_diameter": 10.5,
+        "lower_diameter": 7.5,
+        "height": 16
+      },
+      {
+        "variant_id": "EVEREST-21",
+        "size_label": "21",
+        "listed_price": 7300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Signal White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 89,
+        "upper_diameter": 14.5,
+        "lower_diameter": 9.5,
+        "height": 21
+      },
+      {
+        "variant_id": "EVEREST-27",
+        "size_label": "27",
+        "listed_price": 11000,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 89,
+        "upper_diameter": 18,
+        "lower_diameter": 13,
+        "height": 27.5
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-FUJI",
+    "tenant_id": "kaari-planters",
+    "model_name": "FUJI",
+    "collection": "Linea",
+    "description": "Elegant FRP planter.",
+    "variants": [
+      {
+        "variant_id": "FUJI-12",
+        "size_label": "12",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 91,
+        "upper_diameter": 13,
+        "lower_diameter": 8,
+        "height": 12
+      },
+      {
+        "variant_id": "FUJI-16",
+        "size_label": "16",
+        "listed_price": 6800,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 91,
+        "upper_diameter": 17,
+        "lower_diameter": 10,
+        "height": 16
+      },
+      {
+        "variant_id": "FUJI-19",
+        "size_label": "19",
+        "listed_price": 9400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 91,
+        "upper_diameter": 21,
+        "lower_diameter": 12,
+        "height": 19
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-ATLAS",
+    "tenant_id": "kaari-planters",
+    "model_name": "ATLAS",
+    "collection": "Linea",
+    "description": "Sturdy FRP planter.",
+    "variants": [
+      {
+        "variant_id": "ATLAS-13",
+        "size_label": "13",
+        "listed_price": 5200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 93,
+        "upper_diameter": 9.5,
+        "lower_diameter": 10,
+        "height": 13
+      },
+      {
+        "variant_id": "ATLAS-16",
+        "size_label": "16",
+        "listed_price": 7300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 93,
+        "upper_diameter": 15,
+        "lower_diameter": 11,
+        "height": 16
+      },
+      {
+        "variant_id": "ATLAS-19",
+        "size_label": "19",
+        "listed_price": 6800,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey Beige"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 93,
+        "upper_diameter": 9.5,
+        "lower_diameter": 10,
+        "height": 19
+      },
+      {
+        "variant_id": "ATLAS-24",
+        "size_label": "24",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 93,
+        "upper_diameter": 12.5,
+        "lower_diameter": 12.5,
+        "height": 24
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-VICTORIA",
+    "tenant_id": "kaari-planters",
+    "model_name": "VICTORIA",
+    "collection": "Linea",
+    "description": "Square FRP planter.",
+    "variants": [
+      {
+        "variant_id": "VICTORIA-9",
+        "size_label": "9",
+        "listed_price": 3100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Ivory"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 95,
+        "upper_diameter": 9.5,
+        "lower_diameter": 10,
+        "height": 9.5
+      },
+      {
+        "variant_id": "VICTORIA-12",
+        "size_label": "12",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Ivory"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 95,
+        "upper_diameter": 12.5,
+        "lower_diameter": 13,
+        "height": 12.5
+      },
+      {
+        "variant_id": "VICTORIA-16",
+        "size_label": "16",
+        "listed_price": 6900,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Ivory"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 95,
+        "upper_diameter": 16,
+        "lower_diameter": 16,
+        "height": 16
+      },
+      {
+        "variant_id": "VICTORIA-19",
+        "size_label": "19",
+        "listed_price": 9400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Ivory"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 95,
+        "upper_diameter": 19,
+        "lower_diameter": 19,
+        "height": 19
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-TITLIS",
+    "tenant_id": "kaari-planters",
+    "model_name": "TITLIS",
+    "collection": "Linea",
+    "description": "Cylindrical FRP planter.",
+    "variants": [
+      {
+        "variant_id": "TITLIS-8",
+        "size_label": "8",
+        "listed_price": 2600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 97,
+        "upper_diameter": 8.5,
+        "lower_diameter": 8,
+        "height": 8
+      },
+      {
+        "variant_id": "TITLIS-12",
+        "size_label": "12",
+        "listed_price": 5200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 97,
+        "upper_diameter": 13,
+        "lower_diameter": 12,
+        "height": 12
+      },
+      {
+        "variant_id": "TITLIS-15",
+        "size_label": "15",
+        "listed_price": 9400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 97,
+        "upper_diameter": 17.5,
+        "lower_diameter": 16.5,
+        "height": 15
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-ROSA",
+    "tenant_id": "kaari-planters",
+    "model_name": "ROSA",
+    "collection": "Linea",
+    "description": "Cylindrical FRP planter.",
+    "variants": [
+      {
+        "variant_id": "ROSA-9",
+        "size_label": "9",
+        "listed_price": 3100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 99,
+        "upper_diameter": 10,
+        "lower_diameter": 10,
+        "height": 9.5
+      },
+      {
+        "variant_id": "ROSA-12",
+        "size_label": "12",
+        "listed_price": 5200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 99,
+        "upper_diameter": 13,
+        "lower_diameter": 13,
+        "height": 12
+      },
+      {
+        "variant_id": "ROSA-16",
+        "size_label": "16",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 99,
+        "upper_diameter": 16,
+        "lower_diameter": 16,
+        "height": 16
+      },
+      {
+        "variant_id": "ROSA-18",
+        "size_label": "18",
+        "listed_price": 10500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Grey White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 99,
+        "upper_diameter": 20,
+        "lower_diameter": 20,
+        "height": 18.5
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-MOIRE",
+    "tenant_id": "kaari-planters",
+    "model_name": "MOIRE",
+    "collection": "Linea",
+    "description": "Two-tone FRP planter with glossy rim.",
+    "variants": [
+      {
+        "variant_id": "MOIRE-12",
+        "size_label": "12",
+        "listed_price": 5200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Rim - Glossy, Body - Matte",
+        "texture": "Rim - Glossy, Body - Matte",
+        "catalog_page": 101,
+        "upper_diameter": 12,
+        "lower_diameter": 10,
+        "height": 12
+      },
+      {
+        "variant_id": "MOIRE-16",
+        "size_label": "16",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Rim - Glossy, Body - Matte",
+        "texture": "Rim - Glossy, Body - Matte",
+        "catalog_page": 101,
+        "upper_diameter": 16,
+        "lower_diameter": 14,
+        "height": 16
+      },
+      {
+        "variant_id": "MOIRE-20",
+        "size_label": "20",
+        "listed_price": 12500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Rim - Glossy, Body - Matte",
+        "texture": "Rim - Glossy, Body - Matte",
+        "catalog_page": 101,
+        "upper_diameter": 20,
+        "lower_diameter": 18,
+        "height": 20
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-TAI",
+    "tenant_id": "kaari-planters",
+    "model_name": "TAI",
+    "collection": "Linea",
+    "description": "Tapered cylindrical FRP planter.",
+    "variants": [
+      {
+        "variant_id": "TAI-13",
+        "size_label": "13",
+        "listed_price": 5700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 103,
+        "upper_diameter": 14,
+        "lower_diameter": 9,
+        "height": 13
+      },
+      {
+        "variant_id": "TAI-16",
+        "size_label": "16",
+        "listed_price": 7300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 103,
+        "upper_diameter": 16,
+        "lower_diameter": 11,
+        "height": 16
+      },
+      {
+        "variant_id": "TAI-19",
+        "size_label": "19",
+        "listed_price": 9400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 103,
+        "upper_diameter": 20,
+        "lower_diameter": 13,
+        "height": 19
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-ALPS",
+    "tenant_id": "kaari-planters",
+    "model_name": "ALPS",
+    "collection": "Linea",
+    "description": "Tapered FRP planter.",
+    "variants": [
+      {
+        "variant_id": "ALPS-9",
+        "size_label": "9",
+        "listed_price": 3100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Yellow Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 105,
+        "upper_diameter": 10,
+        "lower_diameter": 6,
+        "height": 9
+      },
+      {
+        "variant_id": "ALPS-12",
+        "size_label": "12",
+        "listed_price": 5200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Oyster White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 105,
+        "upper_diameter": 13,
+        "lower_diameter": 8,
+        "height": 12
+      },
+      {
+        "variant_id": "ALPS-16",
+        "size_label": "16",
+        "listed_price": 9400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Yellow Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 105,
+        "upper_diameter": 18,
+        "lower_diameter": 11,
+        "height": 16
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-BLANC",
+    "tenant_id": "kaari-planters",
+    "model_name": "BLANC",
+    "collection": "Linea",
+    "description": "Tapered cylindrical FRP planter.",
+    "variants": [
+      {
+        "variant_id": "BLANC-10",
+        "size_label": "10",
+        "listed_price": 2600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 107,
+        "upper_diameter": 7.5,
+        "lower_diameter": 4.5,
+        "height": 10
+      },
+      {
+        "variant_id": "BLANC-15",
+        "size_label": "15",
+        "listed_price": 4700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 107,
+        "upper_diameter": 11,
+        "lower_diameter": 7.5,
+        "height": 15
+      },
+      {
+        "variant_id": "BLANC-20",
+        "size_label": "20",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Stone Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 107,
+        "upper_diameter": 15,
+        "lower_diameter": 12,
+        "height": 20
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-FLUTE",
+    "tenant_id": "kaari-planters",
+    "model_name": "FLUTE",
+    "collection": "Linea",
+    "description": "Glossy FRP planter with golden rim.",
+    "variants": [
+      {
+        "variant_id": "FLUTE-12",
+        "size_label": "12",
+        "listed_price": 7300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Jet Black"
+        ],
+        "finish": "Glossy",
+        "texture": "Glossy",
+        "catalog_page": 109,
+        "upper_diameter": 20,
+        "lower_diameter": 17,
+        "height": 12
+      },
+      {
+        "variant_id": "FLUTE-15",
+        "size_label": "15",
+        "listed_price": 4700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Jet Black"
+        ],
+        "finish": "Glossy",
+        "texture": "Glossy",
+        "catalog_page": 109,
+        "upper_diameter": 11,
+        "lower_diameter": 8,
+        "height": 15
+      },
+      {
+        "variant_id": "FLUTE-24",
+        "size_label": "24",
+        "listed_price": 12500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Jet Black"
+        ],
+        "finish": "Glossy",
+        "texture": "Glossy",
+        "catalog_page": 109,
+        "upper_diameter": 20,
+        "lower_diameter": 16.5,
+        "height": 24
+      },
+      {
+        "variant_id": "FLUTE-33",
+        "size_label": "33",
+        "listed_price": 16700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Jet Black"
+        ],
+        "finish": "Glossy",
+        "texture": "Glossy",
+        "catalog_page": 109,
+        "upper_diameter": 18,
+        "lower_diameter": 12,
+        "height": 33
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-FLUTO",
+    "tenant_id": "kaari-planters",
+    "model_name": "FLUTO",
+    "collection": "Linea",
+    "description": "Cylindrical FRP planter.",
+    "variants": [
+      {
+        "variant_id": "FLUTO-9",
+        "size_label": "9",
+        "listed_price": 6300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 111,
+        "upper_diameter": 12.5,
+        "lower_diameter": 12.5,
+        "height": 9
+      },
+      {
+        "variant_id": "FLUTO-13",
+        "size_label": "13",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Papyrus White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 111,
+        "upper_diameter": 14.5,
+        "lower_diameter": 14.5,
+        "height": 13.5
+      },
+      {
+        "variant_id": "FLUTO-19",
+        "size_label": "19",
+        "listed_price": 12500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Black Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 111,
+        "upper_diameter": 16.5,
+        "lower_diameter": 16.5,
+        "height": 19
+      },
+      {
+        "variant_id": "FLUTO-25",
+        "size_label": "25",
+        "listed_price": 20900,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Papyrus White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 111,
+        "upper_diameter": 19,
+        "lower_diameter": 19,
+        "height": 25
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-RECTANGLE",
+    "tenant_id": "kaari-planters",
+    "model_name": "RECTANGLE",
+    "collection": "Linea",
+    "description": "Rectangular FRP planter.",
+    "variants": [
+      {
+        "variant_id": "RECTANGLE-240606",
+        "size_label": "240606",
+        "listed_price": 4250,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 113,
+        "length": 24,
+        "width": 6,
+        "height": 6
+      },
+      {
+        "variant_id": "RECTANGLE-390606",
+        "size_label": "390606",
+        "listed_price": 6050,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 113,
+        "length": 39,
+        "width": 6,
+        "height": 6
+      },
+      {
+        "variant_id": "RECTANGLE-121007",
+        "size_label": "121007",
+        "listed_price": 3100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 113,
+        "length": 12,
+        "width": 10,
+        "height": 7
+      },
+      {
+        "variant_id": "RECTANGLE-460608",
+        "size_label": "460608",
+        "listed_price": 8250,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 113,
+        "length": 46,
+        "width": 6,
+        "height": 8
+      },
+      {
+        "variant_id": "RECTANGLE-100810",
+        "size_label": "100810",
+        "listed_price": 3350,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 113,
+        "length": 10,
+        "width": 8,
+        "height": 10
+      },
+      {
+        "variant_id": "RECTANGLE-120810",
+        "size_label": "120810",
+        "listed_price": 3800,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 113,
+        "length": 12,
+        "width": 8,
+        "height": 10
+      },
+      {
+        "variant_id": "RECTANGLE-240810",
+        "size_label": "240810",
+        "listed_price": 6100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 113,
+        "length": 24,
+        "width": 8,
+        "height": 10
+      },
+      {
+        "variant_id": "RECTANGLE-360810",
+        "size_label": "360810",
+        "listed_price": 8400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 113,
+        "length": 36,
+        "width": 8,
+        "height": 10
+      },
+      {
+        "variant_id": "RECTANGLE-241210",
+        "size_label": "241210",
+        "listed_price": 7300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 114,
+        "length": 24,
+        "width": 12,
+        "height": 10
+      },
+      {
+        "variant_id": "RECTANGLE-240812",
+        "size_label": "240812",
+        "listed_price": 6300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 114,
+        "length": 24,
+        "width": 8,
+        "height": 12
+      },
+      {
+        "variant_id": "RECTANGLE-241012",
+        "size_label": "241012",
+        "listed_price": 6700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 114,
+        "length": 24,
+        "width": 10,
+        "height": 12
+      },
+      {
+        "variant_id": "RECTANGLE-241212",
+        "size_label": "241212",
+        "listed_price": 7300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 114,
+        "length": 24,
+        "width": 12,
+        "height": 12
+      },
+      {
+        "variant_id": "RECTANGLE-361212",
+        "size_label": "361212",
+        "listed_price": 11500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 114,
+        "length": 36,
+        "width": 12,
+        "height": 12
+      },
+      {
+        "variant_id": "RECTANGLE-481212",
+        "size_label": "481212",
+        "listed_price": 14600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 114,
+        "length": 48,
+        "width": 12,
+        "height": 12
+      },
+      {
+        "variant_id": "RECTANGLE-361512",
+        "size_label": "361512",
+        "listed_price": 12400,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 114,
+        "length": 36,
+        "width": 15,
+        "height": 12
+      },
+      {
+        "variant_id": "RECTANGLE-481215",
+        "size_label": "481215",
+        "listed_price": 14950,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 114,
+        "length": 48,
+        "width": 12,
+        "height": 15
+      },
+      {
+        "variant_id": "RECTANGLE-691416",
+        "size_label": "691416",
+        "listed_price": 20050,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 114,
+        "length": 69,
+        "width": 14,
+        "height": 16
+      },
+      {
+        "variant_id": "RECTANGLE-721416",
+        "size_label": "721416",
+        "listed_price": 21700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 115,
+        "length": 72,
+        "width": 14,
+        "height": 16
+      },
+      {
+        "variant_id": "RECTANGLE-241218",
+        "size_label": "241218",
+        "listed_price": 10350,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 115,
+        "length": 24,
+        "width": 12,
+        "height": 18
+      },
+      {
+        "variant_id": "RECTANGLE-361518",
+        "size_label": "361518",
+        "listed_price": 13050,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 115,
+        "length": 36,
+        "width": 15,
+        "height": 18
+      },
+      {
+        "variant_id": "RECTANGLE-241818",
+        "size_label": "241818",
+        "listed_price": 13450,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 115,
+        "length": 24,
+        "width": 18,
+        "height": 18
+      },
+      {
+        "variant_id": "RECTANGLE-301818",
+        "size_label": "301818",
+        "listed_price": 13050,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 115,
+        "length": 30,
+        "width": 18,
+        "height": 18
+      },
+      {
+        "variant_id": "RECTANGLE-361818",
+        "size_label": "361818",
+        "listed_price": 14950,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Jet Black"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 115,
+        "length": 36,
+        "width": 18,
+        "height": 18
+      },
+      {
+        "variant_id": "RECTANGLE-402020",
+        "size_label": "402020",
+        "listed_price": 20900,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 115,
+        "length": 40,
+        "width": 20,
+        "height": 18
+      },
+      {
+        "variant_id": "RECTANGLE-362022",
+        "size_label": "362022",
+        "listed_price": 21900,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 115,
+        "length": 36,
+        "width": 20,
+        "height": 22
+      },
+      {
+        "variant_id": "RECTANGLE-781424",
+        "size_label": "781424",
+        "listed_price": 35500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 115,
+        "length": 78,
+        "width": 14,
+        "height": 24
+      },
+      {
+        "variant_id": "RECTANGLE-362424",
+        "size_label": "362424",
+        "listed_price": 26100,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Jet Black"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 116,
+        "length": 36,
+        "width": 24,
+        "height": 24
+      },
+      {
+        "variant_id": "RECTANGLE-361036",
+        "size_label": "361036",
+        "listed_price": 23000,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Jet Black"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 116,
+        "length": 36,
+        "width": 10,
+        "height": 36
+      },
+      {
+        "variant_id": "RECTANGLE-474736",
+        "size_label": "474736",
+        "listed_price": 62700,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 116,
+        "length": 47,
+        "width": 47,
+        "height": 36
+      },
+      {
+        "variant_id": "RECTANGLE-241040",
+        "size_label": "241040",
+        "listed_price": 17800,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 116,
+        "length": 24,
+        "width": 10,
+        "height": 40
+      }
+    ],
+    "catalog_version": "2026"
+  },
+  {
+    "product_id": "KP-CUBE",
+    "tenant_id": "kaari-planters",
+    "model_name": "CUBE",
+    "collection": "Linea",
+    "description": "Cube FRP planter.",
+    "variants": [
+      {
+        "variant_id": "CUBE-12",
+        "size_label": "12",
+        "listed_price": 4200,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Orange Peel",
+        "texture": "Orange Peel",
+        "catalog_page": 118,
+        "length": 12,
+        "width": 12,
+        "height": 12
+      },
+      {
+        "variant_id": "CUBE-14",
+        "size_label": "14",
+        "listed_price": 6300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 118,
+        "length": 14,
+        "width": 14,
+        "height": 14
+      },
+      {
+        "variant_id": "CUBE-18",
+        "size_label": "18",
+        "listed_price": 10500,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Slate Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 118,
+        "length": 18,
+        "width": 18,
+        "height": 18
+      },
+      {
+        "variant_id": "CUBE-20",
+        "size_label": "20",
+        "listed_price": 13600,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 118,
+        "length": 20,
+        "width": 20,
+        "height": 20
+      },
+      {
+        "variant_id": "CUBE-24",
+        "size_label": "24",
+        "listed_price": 20900,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Jet Black"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 118,
+        "length": 24,
+        "width": 24,
+        "height": 24
+      },
+      {
+        "variant_id": "CUBE-30",
+        "size_label": "30",
+        "listed_price": 30300,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Pure White"
+        ],
+        "finish": "Sand & Dotted",
+        "texture": "Sand & Dotted",
+        "catalog_page": 118,
+        "length": 30,
+        "width": 30,
+        "height": 30
+      },
+      {
+        "variant_id": "CUBE-36",
+        "size_label": "36",
+        "listed_price": 41800,
+        "currency": "INR",
+        "dimensions_unit": "inch",
+        "colours": [
+          "Traffic Grey"
+        ],
+        "finish": "Matte",
+        "texture": "Matte",
+        "catalog_page": 118,
+        "length": 36,
+        "width": 36,
+        "height": 36
+      }
+    ],
+    "catalog_version": "2026"
+  }
+]

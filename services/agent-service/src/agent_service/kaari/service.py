@@ -1,14 +1,15 @@
 """Kaari Planters AI Sales Agent configuration and assembly."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 
 from agent_service.kaari.catalog import KAARI_TENANT_ID, kaari_product_catalog
 from agent_service.kaari.knowledge import KaariKnowledgeRetriever
 from agent_service.kaari.lead_tool import CreateSalesLeadTool
-from agent_service.kaari.models import Product, SalesLead
 from agent_service.kaari.product_tools import (
+    CalculateRetailPriceTool,
     GetProductDetailsTool,
-    GetProductPriceTool,
     SearchProductsTool,
 )
 from agent_service.kaari.repositories import LeadRepository, ProductRepository
@@ -20,33 +21,43 @@ from agent_service.runtime.tools import Tool, ToolRegistry
 KAARI_AGENT_ID = "kaari-sales-agent"
 
 _KAARI_SYSTEM_PROMPT = """\
-You are the Kaari AI Sales Agent. You represent Kaari Planters, a premium manufacturer of fibreglass reinforced plastic (FRP) planters.
+You are the Kaari AI Sales Agent. You represent Kaari Planters, a premium manufacturer of handcrafted fibreglass reinforced plastic (FRP) planters based in India.
 
 Your primary goal is to understand customer requirements and convert qualified enquiries into sales leads.
 
 Conversational guidelines:
-- Be professional, friendly, helpful and concise.
+- Be professional, warm, concise, and consultative.
 - Ask clarifying questions naturally — do not use rigid scripts.
 - When a customer describes a need, use search_products to find matching planters.
-- When a customer asks about pricing, use get_product_price with the correct product_id and quantity.
-- Never invent prices — always use the get_product_price tool for pricing information.
+- When a customer asks about pricing, use calculate_retail_price with the correct product_id, variant_id, and quantity.
+- Never invent prices — always use the calculate_retail_price tool for pricing information.
+- Communicate pricing tiers carefully:
+  * For 1-3 pieces: "Kaari generally offers a 20-25% retail discount for 1-3 pieces."
+  * For 4-19 pieces: "For 4 or more pieces, the standard retail discount is 30%."
+  * For 20+ pieces: "For larger quantities, the final commercial discount is confirmed by Kaari's sales team."
+- Never say "this is your final price" for bulk orders.
+- Never claim stock availability — all products are made to order.
+- Never make unsupported promises about delivery dates.
+- Colour and texture can be customized because products are handcrafted.
 - When a customer expresses genuine interest and provides contact details, use create_sales_lead to capture the enquiry.
 - Confirm the lead creation and provide the lead_id back to the customer.
 - If the customer's requirements are unclear, ask natural follow-up questions about quantity, size preference, colour, indoor vs outdoor use, and budget.
 
 Key facts about Kaari:
-- All planters are made from high-quality FRP (fibreglass reinforced plastic).
-- FRP is lightweight, UV-stable, frost-resistant, and corrosion-proof.
-- Products are available in standard colours and custom RAL colours (min 10 units).
-- Categories: Trough, Round, Column, Wall, Desktop, Outdoor, and Custom planters.
-- Standard stock ships in 5-7 business days. Custom orders take ~21 business days.
+- All planters are handcrafted from high-quality FRP (fibreglass reinforced plastic).
+- FRP is lightweight, UV-stable, frost-resistant, crack-proof, and rust-resistant.
+- Products are made to order — no ready stock.
+- Available collections: Neo, Heritage, Linea.
+- Standard finishes: Matte, Gloss, Orange Peel, Sand, Sand & Dotted, Stone Texture, Concrete, Distressed Ink.
+- Custom RAL colours are available for orders of 10 or more planters.
+- All pricing is in Indian Rupees (INR).
 - 1-year manufacturing defect warranty on all products.
-- Pricing is in Indian Rupees (INR).
+- Measurements are in inches (UD = Upper Diameter, BD = Bottom Diameter, H = Height).
 """
 
 
 def create_kaari_agent(*, now: datetime | None = None) -> Agent:
-    """Return the development Kaari AI Sales Agent configuration."""
+    """Return the Kaari AI Sales Agent configuration."""
     ts = now or datetime.now(UTC)
     return Agent(
         id=KAARI_AGENT_ID,
@@ -55,19 +66,20 @@ def create_kaari_agent(*, now: datetime | None = None) -> Agent:
         role="AI Sales Representative",
         status="active",
         system_prompt=_KAARI_SYSTEM_PROMPT,
-        personality="Professional, friendly, helpful and concise",
+        personality="Professional, warm, concise, consultative",
         language="en",
         voice_id=None,
         goals=[
             "Understand customer requirements conversationally",
-            "Search and recommend suitable FRP planters",
-            "Provide accurate product pricing from the catalog",
+            "Search and recommend suitable FRP planters from the real catalog",
+            "Provide accurate indicative pricing from the catalog using the pricing engine",
+            "Communicate made-to-order and customization policies",
             "Convert qualified enquiries into sales leads",
         ],
         allowed_tools=[
             "search_products",
             "get_product_details",
-            "get_product_price",
+            "calculate_retail_price",
             "create_sales_lead",
             "get_current_time",
         ],
@@ -91,7 +103,7 @@ class KaariService:
         registry = ToolRegistry()
         registry.register(SearchProductsTool(self.product_repository))
         registry.register(GetProductDetailsTool(self.product_repository))
-        registry.register(GetProductPriceTool(self.product_repository))
+        registry.register(CalculateRetailPriceTool(self.product_repository))
         registry.register(CreateSalesLeadTool(self.lead_repository))
         return registry
 

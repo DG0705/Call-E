@@ -1,135 +1,73 @@
-"""Development product catalog for Kaari Planters."""
+"""Kaari 2026 catalog loader.
 
-from datetime import UTC, datetime
+Loads the real Kaari retail catalog from pre-extracted seed data.
+Each product model contains one or more size variants with exact catalog prices,
+dimensions (in inches), colours, and finishes from the official 2026 retail catalog.
 
-from agent_service.kaari.models import Product
+Pricing policy (confirmed by Kaari):
+  1-3 pots: 20-25% discount (indicative range)
+  4-19 pots: 30% discount (fixed)
+  20+ pots: bulk quote required, human-confirmed
+"""
+
+from __future__ import annotations
+
+import json
+from decimal import Decimal
+from pathlib import Path
+
+from agent_service.kaari.models import Product, ProductVariant
 
 KAARI_TENANT_ID = "kaari-planters"
+CATALOG_VERSION = "2026"
+
+_SEED_PATH = Path(__file__).parent / "catalog_seed.json"
+
+
+def load_catalog_from_json(path: Path | None = None) -> list[Product]:
+    """Load the real Kaari catalog from the pre-extracted JSON seed file."""
+    seed_path = path or _SEED_PATH
+    raw = json.loads(seed_path.read_text(encoding="utf-8"))
+    products: list[Product] = []
+    for entry in raw:
+        variants: list[ProductVariant] = []
+        for v in entry["variants"]:
+            pv = ProductVariant(
+                variant_id=v["variant_id"],
+                size_label=v["size_label"],
+                listed_price=Decimal(str(v["listed_price"])),
+                currency=v.get("currency", "INR"),
+                dimensions_unit=v.get("dimensions_unit", "inch"),
+                colours=v.get("colours", []),
+                finish=v.get("finish", ""),
+                texture=v.get("texture", ""),
+                catalog_page=v.get("catalog_page"),
+            )
+            if "upper_diameter" in v:
+                pv.upper_diameter = Decimal(str(v["upper_diameter"]))
+            if "lower_diameter" in v:
+                pv.lower_diameter = Decimal(str(v["lower_diameter"]))
+            if "height" in v:
+                pv.height = Decimal(str(v["height"]))
+            if "length" in v:
+                pv.length = Decimal(str(v["length"]))
+            if "width" in v:
+                pv.width = Decimal(str(v["width"]))
+            variants.append(pv)
+
+        product = Product(
+            product_id=entry["product_id"],
+            tenant_id=entry.get("tenant_id", KAARI_TENANT_ID),
+            model_name=entry["model_name"],
+            collection=entry.get("collection"),
+            description=entry.get("description", ""),
+            variants=variants,
+            catalog_version=entry.get("catalog_version", CATALOG_VERSION),
+        )
+        products.append(product)
+    return products
 
 
 def kaari_product_catalog() -> list[Product]:
-    """Return the development seed catalog with clearly marked sample data."""
-    now = datetime.now(UTC)
-    return [
-        Product(
-            product_id="KP-FRP-001",
-            tenant_id=KAARI_TENANT_ID,
-            product_code="FRP-Trough-01",
-            name="Classic FRP Trough Planter",
-            description="Elegant rectangular FRP trough planter for indoor and outdoor use. Lightweight, weather-resistant, and available in multiple finishes.",
-            category="Trough Planter",
-            dimensions="60cm x 30cm x 30cm",
-            material="Fibreglass Reinforced Plastic",
-            colours=["White", "Charcoal", "Terracotta"],
-            finish="Matte",
-            base_price=2499.0,
-            currency="INR",
-            active=True,
-        ),
-        Product(
-            product_id="KP-FRP-002",
-            tenant_id=KAARI_TENANT_ID,
-            product_code="FRP-Round-02",
-            name="Round FRP Garden Planter",
-            description="Classic round planter made from premium FRP. UV-stable and frost-resistant, ideal for gardens, balconies, and office lobbies.",
-            category="Round Planter",
-            dimensions="40cm diameter x 40cm height",
-            material="Fibreglass Reinforced Plastic",
-            colours=["Gloss White", "Matte Black", "Sage Green"],
-            finish="Gloss",
-            base_price=1899.0,
-            currency="INR",
-            active=True,
-        ),
-        Product(
-            product_id="KP-FRP-003",
-            tenant_id=KAARI_TENANT_ID,
-            product_code="FRP-Tall-03",
-            name="Tall Column FRP Planter",
-            description="Sleek tall column planter for statement greenery. Lightweight FRP with drainage hole. Suited for entrances, reception areas, and hallways.",
-            category="Column Planter",
-            dimensions="30cm x 30cm x 90cm",
-            material="Fibreglass Reinforced Plastic",
-            colours=["Matte White", "Matte Black", "Anthracite"],
-            finish="Matte",
-            base_price=3999.0,
-            currency="INR",
-            active=True,
-        ),
-        Product(
-            product_id="KP-FRP-004",
-            tenant_id=KAARI_TENANT_ID,
-            product_code="FRP-Wall-04",
-            name="Wall-Mounted FRP Planter Box",
-            description="Space-saving wall-mounted planter for vertical gardens and green walls. Corrosion-proof FRP suitable for indoor and sheltered outdoor use.",
-            category="Wall Planter",
-            dimensions="50cm x 15cm x 20cm",
-            material="Fibreglass Reinforced Plastic",
-            colours=["White", "Charcoal", "Olive"],
-            finish="Matte",
-            base_price=1499.0,
-            currency="INR",
-            active=True,
-        ),
-        Product(
-            product_id="KP-FRP-005",
-            tenant_id=KAARI_TENANT_ID,
-            product_code="FRP-Cube-05",
-            name="Cube FRP Desktop Planter",
-            description="Compact cube planter ideal for desk and tabletop greenery. Smooth FRP surface, easy to clean, suitable for office and home.",
-            category="Desktop Planter",
-            dimensions="15cm x 15cm x 15cm",
-            material="Fibreglass Reinforced Plastic",
-            colours=["White", "Pastel Pink", "Navy Blue"],
-            finish="Gloss",
-            base_price=799.0,
-            currency="INR",
-            active=True,
-        ),
-        Product(
-            product_id="KP-FRP-006",
-            tenant_id=KAARI_TENANT_ID,
-            product_code="FRP-Half-06",
-            name="Half-Round Wall FRP Planter",
-            description="Semi-circular planter designed for wall mounting. Great for corridors, patios, and balcony railings. Weather-proof FRP construction.",
-            category="Wall Planter",
-            dimensions="40cm x 20cm x 25cm",
-            material="Fibreglass Reinforced Plastic",
-            colours=["Terracotta", "Cream", "Slate Grey"],
-            finish="Matte",
-            base_price=1299.0,
-            currency="INR",
-            active=True,
-        ),
-        Product(
-            product_id="KP-FRP-007",
-            tenant_id=KAARI_TENANT_ID,
-            product_code="FRP-Large-07",
-            name="Large FRP Outdoor Planter",
-            description="Large capacity planter for trees and large shrubs. Impact-resistant FRP with UV coating. Ideal for commercial outdoor landscaping.",
-            category="Outdoor Planter",
-            dimensions="80cm x 80cm x 70cm",
-            material="Fibreglass Reinforced Plastic",
-            colours=["Charcoal", "Terracotta", "Olive"],
-            finish="Matte",
-            base_price=5999.0,
-            currency="INR",
-            active=True,
-        ),
-        Product(
-            product_id="KP-FRP-008",
-            tenant_id=KAARI_TENANT_ID,
-            product_code="FRP-Custom-08",
-            name="Custom FRP Planter (Made to Order)",
-            description="Fully customisable FRP planter manufactured to your specifications. Choose dimensions, colours, finish, and branding. Minimum order quantity applies.",
-            category="Custom Planter",
-            dimensions="Custom",
-            material="Fibreglass Reinforced Plastic",
-            colours=["Any RAL Colour"],
-            finish="Matte / Gloss / Textured",
-            base_price=4500.0,
-            currency="INR",
-            active=True,
-            metadata={"min_order_quantity": 10, "lead_time_days": 21},
-        ),
-    ]
+    """Return the real 2026 Kaari retail catalog."""
+    return load_catalog_from_json()
