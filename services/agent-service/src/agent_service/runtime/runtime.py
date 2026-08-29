@@ -2,6 +2,8 @@
 
 from typing import Protocol
 
+from pydantic import BaseModel, Field
+
 from agent_service.models import Agent
 from agent_service.runtime.context import (
     ConversationContext,
@@ -39,6 +41,18 @@ class RuntimeResult(LLMResponse):
 
     conversation_id: str
     agent_id: str
+    tool_execution_history: list[dict[str, object]] = Field(default_factory=list)
+
+
+class ToolExecutionRecord(BaseModel):
+    """One tool call and its result, captured during a single respond() call."""
+
+    tool_name: str
+    arguments: dict[str, object] = Field(default_factory=dict)
+    call_id: str = ""
+    success: bool = True
+    result: object = None
+    error: str | None = None
 
 
 class AgentRuntime:
@@ -100,6 +114,7 @@ class AgentRuntime:
         provider_response = await self._generate(
             agent, context, system_instruction=turn_instruction
         )
+        tool_history: list[dict[str, object]] = []
         iterations = 0
         while provider_response.tool_calls:
             if self._tool_engine is None:
@@ -129,6 +144,14 @@ class AgentRuntime:
                     ),
                 )
                 self._append_tool_result(context, result)
+                tool_history.append({
+                    "tool_name": result.tool_name,
+                    "arguments": dict(provider_call.arguments),
+                    "call_id": result.call_id,
+                    "success": result.success,
+                    "result": result.result,
+                    "error": result.error,
+                })
             iterations += 1
             provider_response = await self._generate(
                 agent, context, system_instruction=turn_instruction
@@ -140,6 +163,7 @@ class AgentRuntime:
         return RuntimeResult(
             conversation_id=conversation_id,
             agent_id=agent_id,
+            tool_execution_history=tool_history,
             **provider_response.model_dump(),
         )
 

@@ -104,20 +104,133 @@ curl -X POST http://localhost:8000/api/v1/kaari/sales/test \
 ### Running tests
 
 ```bash
-python -m pytest -q  # 224 tests (56 Kaari-specific)
+python -m pytest -q  # 277 tests (109 Kaari-specific)
 ```
+
+## Kaari MVP Demo
+
+A complete sales conversation can be reproduced locally using the development endpoint.
+
+### Step 1 — Start the agent service
+
+```bash
+cd services/agent-service
+uvicorn agent_service.app:create_agent_app --factory --reload
+```
+
+### Step 2 — Customer: "I need planters for my office"
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/kaari/sales/test \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "kaari-planters",
+    "agent_id": "kaari-sales-agent",
+    "conversation_id": "conv-demo-1",
+    "message": "I need planters for my office."
+  }' | python -m json.tool
+```
+
+Agent searches the catalog and asks clarifying questions (quantity, size, style).
+
+### Step 3 — Customer: "About 10, around 2 feet high, modern style"
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/kaari/sales/test \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "kaari-planters",
+    "agent_id": "kaari-sales-agent",
+    "conversation_id": "conv-demo-1",
+    "message": "About 10, around 2 feet high, modern style"
+  }' | python -m json.tool
+```
+
+Agent searches catalog with height range 20-28 inches, returns matching products.
+
+### Step 4 — Customer: "I like the DEW. What is the price for 10?"
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/kaari/sales/test \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "kaari-planters",
+    "agent_id": "kaari-sales-agent",
+    "conversation_id": "conv-demo-1",
+    "message": "I like the DEW. What is the price for 10?"
+  }' | python -m json.tool
+```
+
+Agent calls `calculate_retail_price(product_id="KP-DEW", variant_id="DEW-40", quantity=10)`.
+Response includes pricing result: 30% discount, Rs 10,220/unit, subtotal Rs 1,02,200.
+
+### Step 5 — Customer: "I want to proceed. My name is Priya, phone +919876543210"
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/kaari/sales/test \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "kaari-planters",
+    "agent_id": "kaari-sales-agent",
+    "conversation_id": "conv-demo-1",
+    "message": "I want to proceed. My name is Priya Sharma, phone +919876543210, email priya@example.com, company Green Spaces Ltd, Mumbai"
+  }' | python -m json.tool
+```
+
+Agent calls `create_sales_lead(...)` and confirms lead creation with a lead ID.
+
+### Demo response structure
+
+Every response includes:
+
+| Field | Description |
+|-------|-------------|
+| `conversation_id` | Persistent across turns |
+| `response` | Agent's natural language reply |
+| `tool_calls` | List of tools invoked (name, arguments, success) |
+| `tool_results` | Tool output for each call |
+| `products_matched` | Model names from search results |
+| `pricing` | Pricing result if calculate_retail_price was called |
+| `lead_id` | Lead ID if create_sales_lead was called |
+| `request_id` | Propagated request ID for tracing |
+
+### Pricing tier reference
+
+| Quantity | Discount | Output |
+|----------|----------|--------|
+| 1-3 | 20-25% (range) | "Kaari generally offers a 20-25% retail discount" |
+| 4-19 | 30% (exact) | "The standard retail discount is 30%" |
+| 20+ | Bulk quote | "Final commercial discount confirmed by Kaari's sales team" |
+
+### Business rules enforced by the agent
+
+- Products are made to order — never claims stock availability
+- Colour and texture can be customised (handcrafted FRP)
+- 20+ quantity requires human commercial confirmation
+- No unsupported delivery date promises
+- All prices are authoritative from the pricing engine
 
 ## Phone Deployment Requirements
 
-To move from test endpoint to live phone calls:
+To move from test endpoint to live phone calls, the following is required:
 
-1. **Asterisk server** with SIP trunk provisioned (Twilio SIP, BICS, etc.)
-2. **ARI configuration** pointing to this agent-service
-3. **STT provider** configured (Deepgram or Whisper API key)
-4. **TTS provider** configured (ElevenLabs or similar API key)
-5. **Real phone number** purchased and routed through Asterisk
-6. **MongoDB** for persistent lead storage (replace in-memory repos)
-7. **Environment variables** set: `STT_API_KEY`, `TTS_API_KEY`, `MONGODB_URI`
+1. **Asterisk server** with PJSIP configured and a SIP trunk provisioned (Twilio SIP, BICS, etc.)
+2. **Environment variables** (all required):
+   - `TELEPHONY_PROVIDER=asterisk`
+   - `ASTERISK_URL=http://<asterisk-host>:8088` (ARI HTTP interface)
+   - `ASTERISK_USERNAME=<ari-username>`
+   - `ASTERISK_PASSWORD=<ari-password>`
+   - `STT_API_KEY=<deepgram-or-whisper-api-key>`
+   - `TTS_API_KEY=<elevenlabs-or-tts-api-key>`
+   - `MONGODB_URI=mongodb://localhost:27017` (for persistent leads)
+   - `LLM_PROVIDER=openai` and `OPENAI_API_KEY=<key>` (for real LLM responses)
+3. **Phone number** purchased and routed through the SIP trunk to Asterisk
+4. **Dialplan** configured to accept inbound calls and route to the agent
+
+The Kaari agent configuration (`tenant_id="kaari-planters"`, `agent_id="kaari-sales-agent"`) is
+already wired through `create_kaari_agent()` and `KaariService`. When a call arrives via
+Asterisk, the `TelephonyService` creates a voice session, and the same Kaari tools (search,
+pricing, lead creation) are available through the agent runtime.
 
 ## Scope Limitations (MVP)
 
