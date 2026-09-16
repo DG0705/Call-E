@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, Field
 
+from voice_service.telephony.dev_routing import KaariDevRouter
 from voice_service.telephony.models import TelephonyCall
 
 
@@ -23,6 +24,16 @@ class HangupCallRequest(BaseModel):
     """Input for hanging up an existing call."""
 
     tenant_id: str = Field(min_length=1)
+
+
+class DevInboundRequest(BaseModel):
+    """Input for the development Kaari inbound route."""
+
+    caller_number: str = Field(min_length=1)
+    destination_number: str = Field(min_length=1)
+    tenant_id: str | None = None
+    agent_id: str | None = None
+    conversation_id: str | None = None
 
 
 @router.post(
@@ -68,5 +79,30 @@ async def hangup_call(
     return await request.app.state.telephony_service.hangup(
         tenant_id=payload.tenant_id,
         call_id=call_id,
+        request_id=getattr(request.state, "request_id", None),
+    )
+
+
+@router.post(
+    "/api/v1/telephony/dev/inbound",
+    response_model=TelephonyCall,
+    response_model_by_alias=False,
+)
+async def dev_inbound_call(request: Request, payload: DevInboundRequest) -> TelephonyCall:
+    """Register an inbound call for the Kaari MVP, resolving extension to agent."""
+    router_instance: KaariDevRouter = getattr(
+        request.app.state, "dev_inbound_router", None
+    ) or KaariDevRouter.from_environment()
+    route = router_instance.resolve(
+        destination_number=payload.destination_number,
+        tenant_id=payload.tenant_id,
+        agent_id=payload.agent_id,
+    )
+    return await request.app.state.telephony_service.create_inbound_call(
+        tenant_id=route.tenant_id,
+        agent_id=route.agent_id,
+        caller_number=payload.caller_number,
+        destination_number=route.destination_number,
+        conversation_id=payload.conversation_id,
         request_id=getattr(request.state, "request_id", None),
     )

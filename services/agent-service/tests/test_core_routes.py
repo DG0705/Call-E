@@ -31,6 +31,7 @@ class FakeAgentCollection:
     def __init__(self, documents: list[dict[str, object]]) -> None:
         self.documents = documents
         self.filters: list[dict[str, str]] = []
+        self.replaced: list[dict[str, object]] = []
 
     async def find_one(self, filter: dict[str, str]) -> dict[str, object] | None:
         self.filters.append(filter)
@@ -43,22 +44,39 @@ class FakeAgentCollection:
             None,
         )
 
+    async def replace_one(
+        self, filter: dict[str, str], document: dict[str, object], **kwargs: object
+    ) -> None:
+        self.replaced.append(document)
+        for index, existing in enumerate(self.documents):
+            if all(existing.get(key) == value for key, value in filter.items()):
+                self.documents[index] = document
+                return
+        self.documents.append(document)
+
 
 class FakeCoreDatabase:
     def __init__(
-        self, collections: list[str], agent_documents: list[dict[str, object]] | None = None
+        self,
+        collections: list[str],
+        agent_documents: list[dict[str, object]] | None = None,
+        tenant_documents: list[dict[str, object]] | None = None,
     ) -> None:
         self.collections = collections
         self.filters: list[dict[str, str]] = []
         self.agents = FakeAgentCollection(agent_documents or [])
+        self.tenants = FakeAgentCollection(tenant_documents or [])
 
     async def list_collection_names(self, **kwargs: object) -> list[str]:
         self.filters.append(kwargs["filter"])
         return self.collections
 
     def __getitem__(self, name: str) -> FakeAgentCollection:
-        assert name == AGENTS_COLLECTION
-        return self.agents
+        if name == AGENTS_COLLECTION:
+            return self.agents
+        if name == TENANTS_COLLECTION:
+            return self.tenants
+        raise KeyError(name)
 
 
 class FakeGroqCompletions:

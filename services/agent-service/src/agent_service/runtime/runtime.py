@@ -1,5 +1,6 @@
 """The reusable, provider-neutral agent runtime."""
 
+import logging
 from typing import Protocol
 
 from pydantic import BaseModel, Field
@@ -13,6 +14,10 @@ from agent_service.runtime.context import (
 from agent_service.runtime.knowledge import (
     KnowledgeRetriever,
     build_knowledge_context,
+)
+from agent_service.runtime.observability import (
+    AGENT_EVENT_LOGGER,
+    log_agent_event,
 )
 from agent_service.runtime.provider import LLMProvider, LLMResponse
 from agent_service.runtime.tools import (
@@ -68,6 +73,7 @@ class AgentRuntime:
         max_tool_iterations: int = 5,
         knowledge_retriever: KnowledgeRetriever | None = None,
         knowledge_top_k: int = 3,
+        logger: logging.Logger | None = None,
     ) -> None:
         self._configuration_loader = configuration_loader
         self._provider = provider
@@ -80,6 +86,7 @@ class AgentRuntime:
             raise ValueError("knowledge_top_k must be at least 1.")
         self._knowledge_retriever = knowledge_retriever
         self._knowledge_top_k = knowledge_top_k
+        self._logger = logger or logging.getLogger(AGENT_EVENT_LOGGER)
 
     async def get_agent(self, *, tenant_id: str, agent_id: str) -> Agent:
         """Load the tenant-scoped configuration required by the runtime."""
@@ -95,6 +102,13 @@ class AgentRuntime:
     ) -> RuntimeResult:
         """Append user input, call the provider, and retain local context."""
         agent = await self.get_agent(tenant_id=tenant_id, agent_id=agent_id)
+        log_agent_event(
+            self._logger,
+            "agent_turn_started",
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            conversation_id=conversation_id,
+        )
         turn_instruction = await self._build_turn_instruction(agent, message)
         context = await self._conversation_store.get(
             tenant_id=tenant_id, agent_id=agent_id, conversation_id=conversation_id
@@ -132,6 +146,16 @@ class AgentRuntime:
                 )
                 break
             for provider_call in provider_response.tool_calls:
+                log_agent_event(
+                    self._logger,
+                    "tool_called",
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    conversation_id=conversation_id,
+                    tool_name=provider_call.tool_name,
+                    call_id=provider_call.call_id,
+                    success=None,
+                )
                 result = await self._tool_engine.execute(
                     agent=agent,
                     call=ToolCall(
@@ -142,6 +166,16 @@ class AgentRuntime:
                         agent_id=agent_id,
                         conversation_id=conversation_id,
                     ),
+                )
+                log_agent_event(
+                    self._logger,
+                    "tool_completed",
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    conversation_id=conversation_id,
+                    tool_name=result.tool_name,
+                    call_id=result.call_id,
+                    success=result.success,
                 )
                 self._append_tool_result(context, result)
                 tool_history.append({
@@ -160,6 +194,15 @@ class AgentRuntime:
             ConversationMessage(role="assistant", content=provider_response.text)
         )
         await self._conversation_store.save(context)
+        log_agent_event(
+            self._logger,
+            "response_generated",
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            conversation_id=conversation_id,
+            provider_name=provider_response.provider_name,
+            model_name=provider_response.model_name,
+        )
         return RuntimeResult(
             conversation_id=conversation_id,
             agent_id=agent_id,

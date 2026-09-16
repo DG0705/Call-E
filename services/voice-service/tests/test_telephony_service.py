@@ -175,6 +175,50 @@ def test_answer_call_opens_voice_session_and_starts() -> None:
     assert started.conversation_id == "conversation-1"
 
 
+def test_answer_call_plays_agent_greeting() -> None:
+    runtime = FakeAgentRuntimeClient()
+    runtime.agent = AgentConfiguration(
+        id="agent-1",
+        tenant_id="tenant-1",
+        language="en",
+        voice_id="neutral-voice",
+        greeting="Welcome to Kaari Planters. How can I help you today?",
+    )
+    service, _ = build_service(runtime=runtime)
+    call = run(
+        service.create_inbound_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            caller_number="+15550001",
+            destination_number="+15550002",
+            conversation_id="conversation-1",
+        )
+    )
+    call = run(service.answer_call(tenant_id="tenant-1", call_id=call.call_id))
+    provider = service._provider  # type: ignore[attr-defined]
+
+    assert call.status == "active"
+    assert provider.sent_audio(call.call_id)  # type: ignore[attr-defined]
+
+
+def test_answer_call_skips_greeting_when_agent_has_none() -> None:
+    service, _ = build_service()
+    call = run(
+        service.create_inbound_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            caller_number="+15550001",
+            destination_number="+15550002",
+            conversation_id="conversation-1",
+        )
+    )
+    call = run(service.answer_call(tenant_id="tenant-1", call_id=call.call_id))
+    provider = service._provider  # type: ignore[attr-defined]
+
+    assert call.status == "active"
+    assert not provider.sent_audio(call.call_id)  # type: ignore[attr-defined]
+
+
 def test_process_audio_runs_turn_and_sends_audio_back() -> None:
     service, _ = build_service()
     call = run(

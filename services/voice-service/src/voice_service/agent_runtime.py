@@ -17,6 +17,7 @@ class AgentConfiguration(BaseModel):
     tenant_id: str
     language: str = "en"
     voice_id: str | None = None
+    greeting: str | None = None
 
 
 class RuntimeResult(BaseModel):
@@ -65,6 +66,7 @@ class AgentRuntimeHttpClient:
             tenant_id=payload["tenant_id"],
             language=payload.get("language", "en"),
             voice_id=payload.get("voice_id"),
+            greeting=payload.get("greeting"),
         )
 
     async def respond(

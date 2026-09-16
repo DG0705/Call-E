@@ -25,6 +25,15 @@ _STT_ERROR_CODE = "voice_stt_error"
 _RUNTIME_ERROR_CODE = "voice_runtime_error"
 _TTS_ERROR_CODE = "voice_tts_error"
 
+_STT_FALLBACK_MESSAGE = (
+    "I'm sorry, I didn't quite catch that. "
+    "Could you please repeat your request?"
+)
+_RUNTIME_FALLBACK_MESSAGE = (
+    "I'm sorry, I'm having trouble reaching our systems right now. "
+    "Please bear with me and try again in a moment."
+)
+
 
 class VoiceTurnResult(BaseModel):
     """Outcome of processing one user audio utterance."""
@@ -63,6 +72,16 @@ class VoiceSessionManager:
         self._session_store = session_store
         self._logger = logger or logging.getLogger(VOICE_EVENT_LOGGER)
 
+    @property
+    def stt_provider(self) -> STTProvider:
+        """The configured speech-to-text provider."""
+        return self._stt_provider
+
+    @property
+    def tts_provider(self) -> TTSProvider:
+        """The configured text-to-speech provider."""
+        return self._tts_provider
+
     async def create_session(
         self,
         *,
@@ -97,6 +116,9 @@ class VoiceSessionManager:
                 status_code=502,
             ) from exc
         now = datetime.now(UTC)
+        session_metadata = dict(metadata or {})
+        if agent.greeting:
+            session_metadata["greeting"] = agent.greeting
         session = VoiceSession(
             session_id=uuid.uuid4().hex,
             tenant_id=tenant_id,
@@ -109,7 +131,7 @@ class VoiceSessionManager:
             voice_id=voice_id or agent.voice_id,
             created_at=now,
             updated_at=now,
-            metadata=metadata or {},
+            metadata=session_metadata,
         )
         await self._session_store.create(session)
         log_voice_event(
@@ -128,6 +150,63 @@ class VoiceSessionManager:
     ) -> VoiceSession:
         """Return one tenant-scoped session or fail with a not-found error."""
         return await self._require_session(tenant_id=tenant_id, session_id=session_id)
+
+    async def synthesize_greeting(
+        self,
+        *,
+        tenant_id: str,
+        session_id: str,
+        request_id: str | None = None,
+    ) -> AudioChunk | None:
+        """Synthesize the session's configured greeting, if any.
+
+        The greeting is a call-level opening statement configured on the agent
+        (for example the Kaari sales agent). It is synthesized through the same
+        TTS provider as ordinary turns so the caller hears the agent's voice.
+        Returns ``None`` when the agent declared no greeting.
+        """
+        session = await self._require_session(tenant_id=tenant_id, session_id=session_id)
+        greeting = session.metadata.get("greeting")
+        if not greeting:
+            return None
+        try:
+            synthesis = await self._tts_provider.synthesize(
+                text=str(greeting),
+                voice_id=session.voice_id,
+                language=session.language,
+                output_format=session.output_audio_format,
+            )
+        except Exception as exc:
+            log_voice_event(
+                self._logger,
+                "audio_synthesized",
+                tenant_id=session.tenant_id,
+                agent_id=session.agent_id,
+                session_id=session.session_id,
+                conversation_id=session.conversation_id,
+                request_id=request_id,
+                stage="greeting",
+                outcome="failed",
+                error_code=_TTS_ERROR_CODE,
+            )
+            raise PlatformError(
+                code=_TTS_ERROR_CODE,
+                message="Text-to-speech synthesis failed.",
+                status_code=502,
+            ) from exc
+        log_voice_event(
+            self._logger,
+            "audio_synthesized",
+            tenant_id=session.tenant_id,
+            agent_id=session.agent_id,
+            session_id=session.session_id,
+            conversation_id=session.conversation_id,
+            request_id=request_id,
+            stage="greeting",
+            provider=synthesis.provider,
+            content_type=synthesis.content_type,
+        )
+        return synthesis.audio
 
     async def process_audio_input(
         self,
@@ -175,8 +254,7 @@ class VoiceSessionManager:
         )
         try:
             transcription = await self._stt_provider.transcribe(audio)
-        except Exception as exc:
-            await self._fail(session, _STT_ERROR_CODE)
+        except Exception:
             log_voice_event(
                 self._logger,
                 "turn_failed",
@@ -188,11 +266,13 @@ class VoiceSessionManager:
                 stage="stt",
                 error_code=_STT_ERROR_CODE,
             )
-            raise PlatformError(
-                code=_STT_ERROR_CODE,
-                message="Speech-to-text processing failed.",
-                status_code=502,
-            ) from exc
+            return await self._fallback_turn(
+                session,
+                text=_STT_FALLBACK_MESSAGE,
+                transcript="",
+                request_id=request_id,
+                error_code=_STT_ERROR_CODE,
+            )
         log_voice_event(
             self._logger,
             "transcription_completed",
@@ -217,8 +297,7 @@ class VoiceSessionManager:
                 conversation_id=session.conversation_id,
                 message=transcription.text,
             )
-        except Exception as exc:
-            await self._fail(session, _RUNTIME_ERROR_CODE)
+        except Exception:
             log_voice_event(
                 self._logger,
                 "turn_failed",
@@ -230,11 +309,13 @@ class VoiceSessionManager:
                 stage="runtime",
                 error_code=_RUNTIME_ERROR_CODE,
             )
-            raise PlatformError(
-                code=_RUNTIME_ERROR_CODE,
-                message="Agent runtime failed to respond.",
-                status_code=502,
-            ) from exc
+            return await self._fallback_turn(
+                session,
+                text=_RUNTIME_FALLBACK_MESSAGE,
+                transcript=transcription.text,
+                request_id=request_id,
+                error_code=_RUNTIME_ERROR_CODE,
+            )
         log_voice_event(
             self._logger,
             "runtime_response_generated",
@@ -295,6 +376,77 @@ class VoiceSessionManager:
             stt_confidence=transcription.confidence,
             runtime_provider=runtime_result.provider_name,
             runtime_model=runtime_result.model_name,
+            tts_provider=synthesis.provider,
+            tts_voice_id=synthesis.voice_id,
+            content_type=synthesis.content_type,
+        )
+
+    async def _fallback_turn(
+        self,
+        session: VoiceSession,
+        *,
+        text: str,
+        transcript: str,
+        request_id: str | None,
+        error_code: str,
+    ) -> VoiceTurnResult:
+        """Return a graceful spoken fallback instead of silence on provider failure.
+
+        The session is marked active again so the caller can retry. If speech
+        synthesis itself is unavailable we cannot speak a fallback, so the
+        session is marked failed and a platform error is raised to drive a
+        graceful call termination.
+        """
+        try:
+            synthesis = await self._tts_provider.synthesize(
+                text=text,
+                voice_id=session.voice_id,
+                language=session.language,
+                output_format=session.output_audio_format,
+            )
+        except Exception as tts_exc:
+            await self._fail(session, _TTS_ERROR_CODE)
+            log_voice_event(
+                self._logger,
+                "turn_failed",
+                tenant_id=session.tenant_id,
+                agent_id=session.agent_id,
+                session_id=session.session_id,
+                conversation_id=session.conversation_id,
+                request_id=request_id,
+                stage="fallback",
+                error_code=_TTS_ERROR_CODE,
+            )
+            raise PlatformError(
+                code=_TTS_ERROR_CODE,
+                message="Text-to-speech synthesis failed.",
+                status_code=502,
+            ) from tts_exc
+        await self._mark(session, "active")
+        log_voice_event(
+            self._logger,
+            "audio_synthesized",
+            tenant_id=session.tenant_id,
+            agent_id=session.agent_id,
+            session_id=session.session_id,
+            conversation_id=session.conversation_id,
+            request_id=request_id,
+            stage="fallback",
+            provider=synthesis.provider,
+            content_type=synthesis.content_type,
+            fallback_error_code=error_code,
+        )
+        return VoiceTurnResult(
+            session_id=session.session_id,
+            tenant_id=session.tenant_id,
+            agent_id=session.agent_id,
+            conversation_id=session.conversation_id,
+            transcript=transcript,
+            response_text=text,
+            audio=synthesis.audio,
+            stt_provider=getattr(self._stt_provider, "provider_name", "unknown"),
+            runtime_provider="fallback",
+            runtime_model="fallback",
             tts_provider=synthesis.provider,
             tts_voice_id=synthesis.voice_id,
             content_type=synthesis.content_type,

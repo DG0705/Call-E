@@ -1,243 +1,184 @@
-# Kaari Planters — AI Sales Agent MVP
+# Kaari AI Sales Agent — MVP for Real Phone Calls
 
-## Business Problem
+This document describes the Kaari agent configuration, capabilities, and how it
+integrates with the voice-service for real phone calls.
 
-Kaari Planters sells handcrafted FRP (Fibreglass Reinforced Plastic) planters to homeowners, landscapers,
-and commercial buyers across India. Sales staff handle repetitive inbound calls — product enquiries, pricing,
-sizing, drainage questions, and lead capture. The MVP automates this with an AI phone agent that can answer
-product questions, search the catalog, quote accurate prices, and create sales leads — all without a
-human operator.
+## Agent Configuration
 
-## Agent Responsibilities
+The Kaari agent is seeded on agent-service startup (`AGENT_SERVICE_SEED=true`):
 
-The Kaari sales agent handles:
+- **Tenant ID**: `kaari-planters`
+- **Agent ID**: `kaari-sales-agent`
+- **Role**: AI Sales Representative
+- **Language**: English (`en`)
+- **Voice ID**: `null` (uses TTS provider default)
+- **Greeting**:
+  > "Hello, thank you for calling Kaari Planters. I would be happy to help you find the right planters. What are you looking for today?"
 
-- **Product discovery**: Search catalog by query, collection, colour, finish, texture, or height range
-- **Product details**: Return name, dimensions, variants, prices, colours, finish, texture
-- **Pricing**: Authoritative INR pricing via the pricing engine — the agent never invents prices
-- **Pricing policy communication**: Correctly communicate discount tiers (20-25% for 1-3, 30% for 4-19, bulk quote for 20+)
-- **Made-to-order communication**: All products are made to order; never claim stock
-- **Knowledge Q&A**: Material durability, drainage, customisation, sizing guidance, FAQs
-- **Lead capture**: Collect name, phone, email, company, location, requirements, preferred colours/finish/texture, budget, and quantity
+## Capabilities
 
-## Pricing Policy
+The Kaari agent is equipped with three tools for handling sales enquiries:
+
+### 1. `search_products`
+Searches the Kaari product catalog by query, collection, colour, finish, size,
+or height range.
+
+**Arguments:**
+```json
+{
+  "query": "string (optional)",
+  "collection": "string (optional: Neo|Linea|Heritage|Dew|Nova|Aqua|Arlo|Orbit|Mandala)",
+  "colour": "string (optional)",
+  "finish": "string (optional: Matte|Orange Peel|Stone|Gloss)",
+  "height_min": "number (optional, inches)",
+  "height_max": "number (optional, inches)"
+}
+```
+
+**Returns:**
+```json
+{
+  "count": 3,
+  "products": [
+    {
+      "product_id": "KP-DEW",
+      "model_name": "DEW",
+      "collection": "Neo",
+      "description": "Conical FRP planter.",
+      "variants": [
+        {
+          "variant_id": "DEW-40",
+          "size_label": "40",
+          "height_inches": 40,
+          "upper_diameter_inches": 12.5,
+          "listed_price_inr": 14600,
+          "finish": "Matte",
+          "colours": ["Light Ivory", "Pearl Beige"]
+        }
+      ]
+    }
+  ]
+}
+```
+
+### 2. `calculate_retail_price`
+Calculates the retail price for a specific product variant and quantity using
+the Kaari pricing policy.
+
+**Arguments:**
+```json
+{
+  "product_id": "KP-DEW",
+  "variant_id": "DEW-40",
+  "quantity": 10
+}
+```
+
+**Returns:**
+```json
+{
+  "product_id": "KP-DEW",
+  "variant_id": "DEW-40",
+  "quantity": 10,
+  "unit_list_price": "14600",
+  "discount_min": "30%",
+  "discount_max": "30%",
+  "unit_discounted_price": "10220.00",
+  "total_discounted_price": "102200.00",
+  "bulk_quote_required": false,
+  "pricing_notes": "Standard retail discount applied. 4-19 units qualify for 30% discount."
+}
+```
+
+### 3. `create_sales_lead`
+Creates a sales lead in MongoDB when the customer wants to proceed.
+
+**Arguments:**
+```json
+{
+  "customer_name": "John Smith",
+  "phone": "+919876543210",
+  "requirements": "10 DEW-40 planters for office",
+  "product_ids": ["KP-DEW"],
+  "quantity": 10,
+  "preferred_colours": ["Pearl Beige"]
+}
+```
+
+**Returns:**
+```json
+{
+  "lead_id": "507f1f77bcf86cd799439011",
+  "status": "new",
+  "bulk_order": false
+}
+```
+
+## Pricing Policy (Enforced by Agent)
 
 | Quantity | Discount | Notes |
 |----------|----------|-------|
-| 1-3 pieces | 20-25% off retail | Indicative range; exact % depends on product/order |
-| 4-19 pieces | 30% off retail | Exact, standard discount |
-| 20+ pieces | Bulk quote required | Commercial discount confirmed by Kaari's sales team |
+| 1–3 | 20–25% indicative retail discount | Agent communicates as a range |
+| 4–19 | 30% exact standard retail discount | Agent states exact percentage |
+| 20+ | Bulk quote required | Agent **never invents** a bulk price; says final commercial discount requires Kaari sales team confirmation |
 
-The `calculate_retail_price` tool enforces this policy. For 20+ pieces the tool returns `bulk_quote_required: true`
-and the agent must communicate that the final price requires Kaari sales team confirmation.
+## Safety Guardrails
 
-## Knowledge Sources
+The agent's system prompt enforces:
 
-All knowledge is keyword-retrieved in-memory (no vector DB required for MVP).
+- **No stock claims**: "Products are made to order; we do not hold inventory."
+- **No delivery promises**: "Timelines depend on production scheduling; I cannot guarantee a delivery date."
+- **Customization available**: "Colour and texture customization is available per the Kaari catalog (Matte, Orange Peel, Stone, Gloss finishes; multiple colours per model)."
+- **Pricing accuracy**: Uses exact catalog prices from `catalog_seed.json`; never estimates or rounds.
 
-| Source | Content |
-|--------|---------|
-| `kaari/catalog_seed.json` | 55+ real product models (Neo, Heritage, Linea collections) with all variants, prices, dimensions |
-| `kaari/knowledge.py` | 13 knowledge chunks covering company info, materials, collections, measurements, colours/finishes, made-to-order policy, pricing policy, customisation, use cases, warranty |
+## Tool Registry
 
-Knowledge is injected into the agent's system prompt at conversation start via `KaariService.knowledge_retriever`.
+The Kaari agent's `allowed_tools`:
+- `search_products`
+- `calculate_retail_price`
+- `create_sales_lead`
 
-## Tools
+These are registered in `KaariService.create_tool_registry()` and only
+available to agents with matching `tenant_id` and `allowed_tools`.
 
-| Tool | Purpose |
-|------|---------|
-| `search_products` | Search across model name, collection, colours, finish, texture, description; filter by collection, colour, finish, texture, height range |
-| `get_product_details` | Return complete product info including all variants by `product_id` |
-| `calculate_retail_price` | Calculate indicative pricing for 1-19 pieces; flag bulk_quote_required for 20+ |
-| `create_sales_lead` | Validate and persist a lead with contact + requirement + preferred attributes + budget |
+## Knowledge Grounding
 
-All tools are registered in a per-tenant `ToolRegistry` and executed via the existing `ToolEngine`.
+The agent has `knowledge_sources: ["kaari-faq"]` configured. Each turn:
+1. User message → `KaariKnowledgeRetriever.retrieve(tenant, agent, query, top_k=3)`
+2. Retrieved chunks appended to per-turn system instruction
+3. LLM uses grounded knowledge for responses
 
-## Conversation Flow
+The knowledge base includes:
+- Made-to-order policy
+- Pricing tiers
+- Warranty (10 years structural, 2 years finish)
+- Customization options
+- Lead process
 
-```
-Caller dials number → Asterisk receives call → ARI bridge created
-  → Voice Engine streams STT (Whisper/Deepgram) → Agent Runtime
-  → LLM generates response (tools available) → TTS streamed back via Voice Engine
-  → On lead creation or call end → SalesLead persisted → Call logged
-```
+## Integration with Voice Service
 
-Multi-turn: conversation history is maintained across turns via `conversation_id`.
+The agent is invoked via the voice-service's `AgentRuntimeClient` (HTTP boundary):
+- Voice service `VoiceSessionManager` → `AgentRuntimeClient.respond()`
+- Conversation context preserved across turns via `conversation_id`
+- Tool execution history returned in `RuntimeResult.tool_execution_history`
 
-## Architecture
+## Running the Kaari Agent in a Real Call
 
-```
-agent-service/
-├── kaari/
-│   ├── __init__.py            # Public API
-│   ├── models.py              # ProductVariant, Product, SalesLead, CatalogImportWarning/Summary
-│   ├── repositories.py        # ProductRepository (search by collection/colour/finish/height), LeadRepository
-│   ├── catalog.py             # Loads real catalog from catalog_seed.json
-│   ├── catalog_seed.json      # 55+ real products with all variants (generated from PDF)
-│   ├── parser.py              # PDF parser for programmatic catalog extraction
-│   ├── pricing.py             # Decimal-safe pricing engine (3 tiers, bulk quote escalation)
-│   ├── knowledge.py           # KaariKnowledgeRetriever + 13 chunks
-│   ├── product_tools.py       # SearchProductsTool v2, GetProductDetailsTool v2, CalculateRetailPriceTool
-│   ├── lead_tool.py           # CreateSalesLeadTool v2 (extended fields)
-│   └── service.py             # KaariService + create_kaari_agent()
-├── routes/kaari.py            # POST /api/v1/kaari/sales/test
-├── scripts/
-│   └── generate_catalog.py    # Generates catalog_seed.json from extracted PDF data
-└── app.py                     # Wires KaariService + kaari router
-```
+See **voice-service/README.md → "How to run a real Kaari phone call"** for
+the complete setup: environment variables, Asterisk config, SIP registration,
+and the expected conversation flow.
 
-## Local Testing
+## Mock Mode
 
-### Test endpoint
+For development without paid APIs:
 
-```bash
-curl -X POST http://localhost:8000/api/v1/kaari/sales/test \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tenant_id": "kaari-planters",
-    "agent_id": "kaari-sales-agent",
-    "conversation_id": "conv-test-1",
-    "message": "What FRP planters do you have?"
-  }'
+```powershell
+# Agent service with mock LLM
+LLM_PROVIDER=mock uv run uvicorn agent_service.main:app --reload
+
+# Run smoke test (uses all mocks)
+uv run pytest services/agent-service/tests/test_kaari.py::test_kaari_mvp_smoke_test -v
 ```
 
-### Running tests
-
-```bash
-python -m pytest -q  # 277 tests (109 Kaari-specific)
-```
-
-## Kaari MVP Demo
-
-A complete sales conversation can be reproduced locally using the development endpoint.
-
-### Step 1 — Start the agent service
-
-```bash
-cd services/agent-service
-uvicorn agent_service.app:create_agent_app --factory --reload
-```
-
-### Step 2 — Customer: "I need planters for my office"
-
-```bash
-curl -s -X POST http://localhost:8000/api/v1/kaari/sales/test \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tenant_id": "kaari-planters",
-    "agent_id": "kaari-sales-agent",
-    "conversation_id": "conv-demo-1",
-    "message": "I need planters for my office."
-  }' | python -m json.tool
-```
-
-Agent searches the catalog and asks clarifying questions (quantity, size, style).
-
-### Step 3 — Customer: "About 10, around 2 feet high, modern style"
-
-```bash
-curl -s -X POST http://localhost:8000/api/v1/kaari/sales/test \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tenant_id": "kaari-planters",
-    "agent_id": "kaari-sales-agent",
-    "conversation_id": "conv-demo-1",
-    "message": "About 10, around 2 feet high, modern style"
-  }' | python -m json.tool
-```
-
-Agent searches catalog with height range 20-28 inches, returns matching products.
-
-### Step 4 — Customer: "I like the DEW. What is the price for 10?"
-
-```bash
-curl -s -X POST http://localhost:8000/api/v1/kaari/sales/test \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tenant_id": "kaari-planters",
-    "agent_id": "kaari-sales-agent",
-    "conversation_id": "conv-demo-1",
-    "message": "I like the DEW. What is the price for 10?"
-  }' | python -m json.tool
-```
-
-Agent calls `calculate_retail_price(product_id="KP-DEW", variant_id="DEW-40", quantity=10)`.
-Response includes pricing result: 30% discount, Rs 10,220/unit, subtotal Rs 1,02,200.
-
-### Step 5 — Customer: "I want to proceed. My name is Priya, phone +919876543210"
-
-```bash
-curl -s -X POST http://localhost:8000/api/v1/kaari/sales/test \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tenant_id": "kaari-planters",
-    "agent_id": "kaari-sales-agent",
-    "conversation_id": "conv-demo-1",
-    "message": "I want to proceed. My name is Priya Sharma, phone +919876543210, email priya@example.com, company Green Spaces Ltd, Mumbai"
-  }' | python -m json.tool
-```
-
-Agent calls `create_sales_lead(...)` and confirms lead creation with a lead ID.
-
-### Demo response structure
-
-Every response includes:
-
-| Field | Description |
-|-------|-------------|
-| `conversation_id` | Persistent across turns |
-| `response` | Agent's natural language reply |
-| `tool_calls` | List of tools invoked (name, arguments, success) |
-| `tool_results` | Tool output for each call |
-| `products_matched` | Model names from search results |
-| `pricing` | Pricing result if calculate_retail_price was called |
-| `lead_id` | Lead ID if create_sales_lead was called |
-| `request_id` | Propagated request ID for tracing |
-
-### Pricing tier reference
-
-| Quantity | Discount | Output |
-|----------|----------|--------|
-| 1-3 | 20-25% (range) | "Kaari generally offers a 20-25% retail discount" |
-| 4-19 | 30% (exact) | "The standard retail discount is 30%" |
-| 20+ | Bulk quote | "Final commercial discount confirmed by Kaari's sales team" |
-
-### Business rules enforced by the agent
-
-- Products are made to order — never claims stock availability
-- Colour and texture can be customised (handcrafted FRP)
-- 20+ quantity requires human commercial confirmation
-- No unsupported delivery date promises
-- All prices are authoritative from the pricing engine
-
-## Phone Deployment Requirements
-
-To move from test endpoint to live phone calls, the following is required:
-
-1. **Asterisk server** with PJSIP configured and a SIP trunk provisioned (Twilio SIP, BICS, etc.)
-2. **Environment variables** (all required):
-   - `TELEPHONY_PROVIDER=asterisk`
-   - `ASTERISK_URL=http://<asterisk-host>:8088` (ARI HTTP interface)
-   - `ASTERISK_USERNAME=<ari-username>`
-   - `ASTERISK_PASSWORD=<ari-password>`
-   - `STT_API_KEY=<deepgram-or-whisper-api-key>`
-   - `TTS_API_KEY=<elevenlabs-or-tts-api-key>`
-   - `MONGODB_URI=mongodb://localhost:27017` (for persistent leads)
-   - `LLM_PROVIDER=openai` and `OPENAI_API_KEY=<key>` (for real LLM responses)
-3. **Phone number** purchased and routed through the SIP trunk to Asterisk
-4. **Dialplan** configured to accept inbound calls and route to the agent
-
-The Kaari agent configuration (`tenant_id="kaari-planters"`, `agent_id="kaari-sales-agent"`) is
-already wired through `create_kaari_agent()` and `KaariService`. When a call arrives via
-Asterisk, the `TelephonyService` creates a voice session, and the same Kaari tools (search,
-pricing, lead creation) are available through the agent runtime.
-
-## Scope Limitations (MVP)
-
-- No WhatsApp, email, or CRM integration
-- No payment or quotation generation
-- No outbound campaigns or follow-ups
-- No human escalation or agent handoff
-- No analytics dashboard
-- No multi-agent orchestration
-- Lead storage is in-memory — will be lost on restart
+The mock LLM provider can be programmed with `planned_tool_calls` to exercise
+specific tool sequences without Groq.

@@ -26,6 +26,7 @@ from voice_service.telephony import (
     TelephonySettings,
     load_telephony_settings,
 )
+from voice_service.telephony.dev_routing import KaariDevRouter
 from voice_service.telephony.events import EventPublisher, LoggingEventPublisher
 from voice_service.telephony.routes import router as telephony_router
 from voice_service.telephony.service import TelephonyService
@@ -49,6 +50,7 @@ def create_voice_app(
     telephony_settings: TelephonySettings | None = None,
     call_store: CallStore | None = None,
     event_publisher: EventPublisher | None = None,
+    dev_inbound_router: KaariDevRouter | None = None,
 ) -> FastAPI:
     """Create the service hosting the tenant-scoped voice session lifecycle."""
     app = create_app(VOICE_SERVICE_NAME)
@@ -85,6 +87,9 @@ def create_voice_app(
         event_publisher=event_publisher or LoggingEventPublisher(),
     )
     app.state.telephony_service = telephony
+    app.state.dev_inbound_router = (
+        dev_inbound_router or KaariDevRouter.from_environment()
+    )
     app.include_router(telephony_router)
 
     if database is not None:
@@ -97,8 +102,16 @@ def create_voice_app(
         async def close_voice_database() -> None:
             await telephony.close()
             await database.close()
+            await _close_provider(manager.stt_provider)
+            await _close_provider(manager.tts_provider)
             close_runtime = getattr(runtime, "close", None)
             if close_runtime is not None:
                 await close_runtime()
 
     return app
+
+
+async def _close_provider(provider: object) -> None:
+    close_method = getattr(provider, "close", None)
+    if close_method is not None:
+        await close_method()

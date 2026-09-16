@@ -69,6 +69,11 @@ def create_kaari_agent(*, now: datetime | None = None) -> Agent:
         personality="Professional, warm, concise, consultative",
         language="en",
         voice_id=None,
+        greeting=(
+            "Hello, thank you for calling Kaari Planters. "
+            "I would be happy to help you find the right planters. "
+            "What are you looking for today?"
+        ),
         goals=[
             "Understand customer requirements conversationally",
             "Search and recommend suitable FRP planters from the real catalog",

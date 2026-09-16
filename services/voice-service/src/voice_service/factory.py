@@ -2,7 +2,9 @@
 
 from voice_service.config import STTSettings, TTSSettings
 from voice_service.stt import MockSTTProvider, STTProvider
+from voice_service.stt_providers import DeepgramSTTProvider
 from voice_service.tts import MockTTSProvider, TTSProvider
+from voice_service.tts_providers import ElevenLabsTTSProvider
 
 
 class VoiceProviderConfigurationError(ValueError):
@@ -14,11 +16,20 @@ class STTProviderFactory:
 
     @staticmethod
     def create(settings: STTSettings) -> STTProvider:
-        """Return the mock provider, rejecting unsupported configurations."""
+        """Return mock or Deepgram, falling back safely when no key is set."""
         if settings.provider == "mock":
             return MockSTTProvider(default_transcript=settings.default_transcript)
-        raise VoiceProviderConfigurationError(
-            f"Unsupported VOICE_STT_PROVIDER '{settings.provider}'. Use 'mock'."
+        if settings.provider != "deepgram":
+            raise VoiceProviderConfigurationError(
+                f"Unsupported VOICE_STT_PROVIDER '{settings.provider}'. "
+                "Use 'mock' or 'deepgram'."
+            )
+        if settings.deepgram_api_key is None:
+            return MockSTTProvider(default_transcript=settings.default_transcript)
+        return DeepgramSTTProvider(
+            api_key=settings.deepgram_api_key,
+            model=settings.deepgram_model or "nova-2",
+            default_language=settings.deepgram_language or "en",
         )
 
 
@@ -27,9 +38,18 @@ class TTSProviderFactory:
 
     @staticmethod
     def create(settings: TTSSettings) -> TTSProvider:
-        """Return the mock provider, rejecting unsupported configurations."""
+        """Return mock or ElevenLabs, falling back safely when no key is set."""
         if settings.provider == "mock":
             return MockTTSProvider()
-        raise VoiceProviderConfigurationError(
-            f"Unsupported VOICE_TTS_PROVIDER '{settings.provider}'. Use 'mock'."
+        if settings.provider != "elevenlabs":
+            raise VoiceProviderConfigurationError(
+                f"Unsupported VOICE_TTS_PROVIDER '{settings.provider}'. "
+                "Use 'mock' or 'elevenlabs'."
+            )
+        if settings.elevenlabs_api_key is None:
+            return MockTTSProvider()
+        return ElevenLabsTTSProvider(
+            api_key=settings.elevenlabs_api_key,
+            voice_id=settings.elevenlabs_voice_id,
+            model_id=settings.elevenlabs_model_id or "eleven_multilingual_v2",
         )

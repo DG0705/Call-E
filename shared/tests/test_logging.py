@@ -24,3 +24,16 @@ def test_configure_logging_is_idempotent() -> None:
     )))
     assert payload["service"] == "test-service"
     assert "request_id" in payload
+
+
+def test_configure_logging_enables_named_event_loggers() -> None:
+    configure_logging(service_name="event-service", level="INFO")
+
+    assert (
+        logging.getLogger("voice_service.events").getEffectiveLevel()
+        == logging.INFO
+    )
+    assert (
+        logging.getLogger("agent_service.runtime.events").getEffectiveLevel()
+        == logging.INFO
+    )

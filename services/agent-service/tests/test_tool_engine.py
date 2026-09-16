@@ -662,3 +662,70 @@ def test_runtime_persists_conversation_after_tool_loop() -> None:
     assert context is not None
     assert [message.role for message in context.messages].count("user") == 2
     assert any(message.role == "tool" for message in context.messages)
+
+
+class CapturingHandler(logging.Handler):
+    """Collect structured agent lifecycle events for assertions."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.events: list[dict[str, object]] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        payload = getattr(record, "agent_event", None)
+        if isinstance(payload, dict):
+            self.events.append(payload)
+
+
+def test_runtime_emits_lifecycle_observability_events() -> None:
+    handler = CapturingHandler()
+    logger = logging.getLogger("agent_service.runtime.events")
+    previous_level = logger.level
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+    try:
+        runtime = AgentRuntime(
+            configuration_loader=StaticAgentLoader(agent()),
+            provider=MockLLMProvider(
+                planned_tool_calls=[
+                    ProviderToolCall(
+                        call_id="call-1",
+                        tool_name="echo_customer_context",
+                        arguments={"message": "Rahul"},
+                    )
+                ]
+            ),
+            conversation_store=InMemoryConversationStore(),
+            tool_registry=create_development_tool_registry(),
+            logger=logger,
+        )
+        asyncio.run(
+            runtime.respond(
+                tenant_id="tenant-1",
+                agent_id="agent-1",
+                conversation_id="conversation-1",
+                message="Echo Rahul",
+            )
+        )
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous_level)
+
+    names = [event["event"] for event in handler.events]
+    assert names == [
+        "agent_turn_started",
+        "tool_called",
+        "tool_completed",
+        "response_generated",
+    ]
+    for event in handler.events:
+        scoped = {k: event.get(k) for k in ("tenant_id", "agent_id", "conversation_id")}
+        assert scoped == {
+            "tenant_id": "tenant-1",
+            "agent_id": "agent-1",
+            "conversation_id": "conversation-1",
+        }
+    tool_called = handler.events[1]
+    assert tool_called["tool_name"] == "echo_customer_context"
+    assert tool_called["success"] is None
+    assert handler.events[2]["success"] is True

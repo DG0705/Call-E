@@ -34,6 +34,10 @@ def configure_logging(
     *, service_name: str, level: str = DEFAULT_LOG_LEVEL
 ) -> logging.Logger:
     """Configure and return an idempotent structured logger."""
+    # Set the root level so named event loggers (for example voice_service.*,
+    # agent_service.*) that emit INFO lifecycle observability events inherit it
+    # instead of falling back to the WARNING default.
+    logging.getLogger().setLevel(level)
     logger = logging.getLogger(f"call_e.{service_name}")
     logger.setLevel(level)
     logger.propagate = False

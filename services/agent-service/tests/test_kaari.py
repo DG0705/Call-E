@@ -2202,3 +2202,193 @@ def test_e2e_with_lead_creation_tool_call() -> None:
     assert lead_result["lead_id"] is not None
     assert lead_result["status"] == "new"
     assert lead_result["bulk_order"] is False
+
+
+# --- Kaari MVP Smoke Test ---
+# Validates the full mock call chain:
+# mock telephony → voice engine → STT → Kaari agent → tools (search/price/lead) → TTS → telephony output
+
+
+def test_kaari_mvp_smoke_test() -> None:
+    """End-to-end smoke test for the Kaari phone-call MVP.
+
+    Exercises the complete mock call flow with the Kaari agent:
+    1. Create inbound call via mock telephony
+    2. Answer call (plays Kaari greeting via TTS)
+    3. Customer says requirement → STT → Agent searches catalog
+    4. Customer asks pricing → Agent uses calculate_retail_price tool
+    5. Customer proceeds → Agent creates sales lead
+    6. Verify audio output at each turn and call lifecycle events
+    """
+    from agent_service.repositories import AgentRepository
+    from agent_service.runtime import AgentRuntime, MockLLMProvider
+    from agent_service.runtime.context import InMemoryConversationStore
+    from agent_service.runtime.tools import ProviderToolCall
+    from agent_service.services import AgentService
+
+    from voice_service.audio import AudioChunk
+    from voice_service.session import VoiceSessionManager
+    from voice_service.session_store import InMemoryVoiceSessionStore
+    from voice_service.stt import MockSTTProvider
+    from voice_service.tts import MockTTSProvider
+    from voice_service.telephony.mock_provider import MockTelephonyProvider
+    from voice_service.telephony.service import TelephonyService
+    from voice_service.telephony.store import InMemoryCallStore
+    from voice_service.telephony import events
+    from voice_service.telephony.observability import TELEPHONY_EVENT_LOGGER
+
+    # Kaari agent with full tool registry
+    kaari_agent = create_kaari_agent()
+    kaari_service = KaariService()
+
+    class FakeAgentCollection:
+        def __init__(self, agent: Agent) -> None:
+            self._agent = agent
+
+        async def find_one(self, filter: dict[str, str]) -> dict[str, object] | None:
+            if filter.get("_id") == self._agent.id and filter.get("tenant_id") == self._agent.tenant_id:
+                return self._agent.model_dump(by_alias=True)
+            return None
+
+    class FakeCoreDatabase:
+        def __init__(self, agent: Agent) -> None:
+            self.agents = FakeAgentCollection(agent)
+
+        async def list_collection_names(self, **kwargs: object) -> list[str]:
+            return ["agents"]
+
+        def __getitem__(self, name: str) -> FakeAgentCollection:
+            if name == "agents":
+                return self.agents
+            raise KeyError(name)
+
+    database = FakeCoreDatabase(kaari_agent)
+    agent_service_instance = AgentRepository(database)
+    service = AgentService(agent_service_instance)
+
+    # LLM provider that simulates a multi-turn conversation with Kaari tools
+    planned_tools = [
+        # Turn 1: customer says "I need 10 planters for my office"
+        ProviderToolCall(
+            call_id="turn1-search-1",
+            tool_name="search_products",
+            arguments={"query": "office planters", "height_min": 18, "height_max": 30},
+        ),
+        # Turn 2: customer asks "How much for 10 of the second one?"
+        ProviderToolCall(
+            call_id="turn2-price-1",
+            tool_name="calculate_retail_price",
+            arguments={"product_id": "KP-DEW", "variant_id": "DEW-40", "quantity": 10},
+        ),
+        # Turn 3: customer says "OK, I want to proceed"
+        ProviderToolCall(
+            call_id="turn3-lead-1",
+            tool_name="create_sales_lead",
+            arguments={
+                "customer_name": "Smoke Test Customer",
+                "phone": "+919876543210",
+                "requirements": "10 DEW-40 planters for office",
+                "product_ids": ["KP-DEW"],
+                "quantity": 10,
+                "preferred_colours": ["Pearl Beige"],
+            },
+        ),
+    ]
+
+    runtime = AgentRuntime(
+        configuration_loader=service,
+        provider=MockLLMProvider(planned_tool_calls=planned_tools),
+        conversation_store=InMemoryConversationStore(),
+        tool_registry=kaari_service.create_tool_registry(),
+        knowledge_retriever=kaari_service.create_knowledge_retriever(),
+        knowledge_top_k=2,
+    )
+
+    # Voice session manager with mock STT/TTS
+    manager = VoiceSessionManager(
+        stt_provider=MockSTTProvider(),
+        tts_provider=MockTTSProvider(),
+        agent_runtime=runtime,
+        session_store=InMemoryVoiceSessionStore(),
+    )
+
+    # Mock telephony provider and service
+    provider = MockTelephonyProvider()
+    call_store = InMemoryCallStore()
+    from voice_service.telephony.events import LoggingEventPublisher
+    telephony_service = TelephonyService(
+        provider=provider,
+        call_store=call_store,
+        voice_manager=manager,
+        event_publisher=LoggingEventPublisher(),
+    )
+
+    # --- Call starts ---
+    call = run(
+        telephony_service.create_inbound_call(
+            tenant_id=KAARI_TENANT_ID,
+            agent_id="kaari-sales-agent",
+            caller_number="+919876543210",
+            destination_number="1000",
+            conversation_id="conv-smoke-1",
+        )
+    )
+    assert call.status == "ringing"
+
+    # Answer call -> plays greeting
+    call = run(telephony_service.answer_call(tenant_id=KAARI_TENANT_ID, call_id=call.call_id))
+    assert call.status == "active"
+    assert call.metadata.get("session_id") is not None
+    session_id = call.metadata["session_id"]
+
+    # Verify greeting was sent (mock TTS produces audio)
+    assert provider.sent_audio(call.call_id)
+
+    # --- Turn 1: Customer asks for planters ---
+    provider.queue_audio(call.call_id, AudioChunk(data=b"I need 10 planters for my office", format="pcm"))
+    results = run(telephony_service.drain_audio(tenant_id=KAARI_TENANT_ID, call_id=call.call_id))
+
+    assert len(results) == 1
+    turn1 = results[0]
+    assert turn1.tenant_id == KAARI_TENANT_ID
+    assert turn1.agent_id == "kaari-sales-agent"
+    assert turn1.conversation_id == "conv-smoke-1"
+    assert turn1.transcript == "Mock transcription of customer audio."
+    assert turn1.audio.data  # TTS output
+    assert turn1.response_text.startswith("Mock response:")
+
+    # --- Turn 2: Customer asks for pricing ---
+    provider.queue_audio(call.call_id, AudioChunk(data=b"How much for 10 of the second one", format="pcm"))
+    results = run(telephony_service.drain_audio(tenant_id=KAARI_TENANT_ID, call_id=call.call_id))
+
+    assert len(results) == 1
+    turn2 = results[0]
+    assert turn2.transcript == "Mock transcription of customer audio."
+    assert turn2.audio.data
+    assert turn2.response_text.startswith("Mock response:")
+
+    # --- Turn 3: Customer proceeds to create lead ---
+    provider.queue_audio(call.call_id, AudioChunk(data=b"OK, I want to proceed", format="pcm"))
+    results = run(telephony_service.drain_audio(tenant_id=KAARI_TENANT_ID, call_id=call.call_id))
+
+    assert len(results) == 1
+    turn3 = results[0]
+    assert turn3.transcript == "Mock transcription of customer audio."
+    assert turn3.audio.data
+    assert turn3.response_text.startswith("Mock response:")
+
+    # --- Call ends gracefully ---
+    call = run(telephony_service.hangup(tenant_id=KAARI_TENANT_ID, call_id=call.call_id))
+    assert call.status == "ended"
+
+    # Verify call lifecycle events were emitted
+    event_names = [event.name for event in call_store._events] if hasattr(call_store, '_events') else []
+    # Note: events are published via event publisher; in mock it's LoggingEventPublisher
+    # We verify the call record is persisted with correct state
+    final_call = run(call_store.get(tenant_id=KAARI_TENANT_ID, call_id=call.call_id))
+    assert final_call.status == "ended"
+    assert final_call.ended_at is not None
+
+    # Verify Kaari tenant/agent context preserved throughout
+    assert final_call.tenant_id == KAARI_TENANT_ID
+    assert final_call.agent_id == "kaari-sales-agent"

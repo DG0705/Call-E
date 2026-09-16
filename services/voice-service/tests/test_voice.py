@@ -298,9 +298,39 @@ def test_provider_factories_select_mock_and_reject_unknown() -> None:
     assert isinstance(stt, MockSTTProvider)
     assert isinstance(tts, MockTTSProvider)
     with pytest.raises(VoiceProviderConfigurationError):
-        STTProviderFactory.create(STTSettings(provider="deepgram"))
+        STTProviderFactory.create(STTSettings(provider="watson"))
     with pytest.raises(VoiceProviderConfigurationError):
-        TTSProviderFactory.create(TTSSettings(provider="elevenlabs"))
+        TTSProviderFactory.create(TTSSettings(provider="azure"))
+
+
+def test_provider_factories_fallback_to_mock_without_credentials() -> None:
+    from voice_service.stt_providers import DeepgramSTTProvider
+    from voice_service.tts_providers import ElevenLabsTTSProvider
+
+    stt = STTProviderFactory.create(
+        STTSettings(provider="deepgram", deepgram_api_key=None)
+    )
+    tts = TTSProviderFactory.create(
+        TTSSettings(provider="elevenlabs", elevenlabs_api_key=None)
+    )
+
+    assert isinstance(stt, MockSTTProvider)
+    assert isinstance(tts, MockTTSProvider)
+
+
+def test_provider_factories_select_real_providers_with_credentials() -> None:
+    from voice_service.stt_providers import DeepgramSTTProvider
+    from voice_service.tts_providers import ElevenLabsTTSProvider
+
+    stt = STTProviderFactory.create(
+        STTSettings(provider="deepgram", deepgram_api_key="test-key")
+    )
+    tts = TTSProviderFactory.create(
+        TTSSettings(provider="elevenlabs", elevenlabs_api_key="test-key")
+    )
+
+    assert isinstance(stt, DeepgramSTTProvider)
+    assert isinstance(tts, ElevenLabsTTSProvider)
 
 
 def test_settings_default_to_mock(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -545,20 +575,53 @@ def test_manager_returns_422_when_no_speech_recognized() -> None:
 
 
 @pytest.mark.parametrize(
-    ("stage", "manager", "code"),
+    ("stage", "manager", "code", "fallback_fragment"),
     [
-        ("stt", build_manager(stt=FailingSTTProvider()), "voice_stt_error"),
+        (
+            "stt",
+            build_manager(stt=FailingSTTProvider()),
+            "voice_stt_error",
+            "repeat your request",
+        ),
         (
             "runtime",
             build_manager(runtime=FakeAgentRuntimeClient(respond_error=RuntimeError("boom"))),
             "voice_runtime_error",
+            "reaching our systems",
         ),
-        ("tts", build_manager(tts=FailingTTSProvider()), "voice_tts_error"),
     ],
 )
-def test_manager_marks_session_failed_when_pipeline_stage_fails(
-    stage: str, manager: VoiceSessionManager, code: str
+def test_manager_returns_spoken_fallback_when_recoverable_stage_fails(
+    stage: str,
+    manager: VoiceSessionManager,
+    code: str,
+    fallback_fragment: str,
 ) -> None:
+    session = asyncio.run(
+        manager.create_session(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    result = asyncio.run(
+        manager.process_audio_input(
+            tenant_id="tenant-1",
+            session_id=session.session_id,
+            audio=AudioChunk(data=b"audio", format="pcm"),
+        )
+    )
+
+    assert fallback_fragment in result.response_text
+    assert result.audio.data
+    assert result.runtime_provider == "fallback"
+    current = asyncio.run(
+        manager.get_session(tenant_id="tenant-1", session_id=session.session_id)
+    )
+    assert current.status == "active"
+
+
+def test_manager_marks_session_failed_when_tts_fails() -> None:
+    manager = build_manager(tts=FailingTTSProvider())
     session = asyncio.run(
         manager.create_session(
             tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
@@ -574,13 +637,13 @@ def test_manager_marks_session_failed_when_pipeline_stage_fails(
             )
         )
 
-    assert excinfo.value.code == code
+    assert excinfo.value.code == "voice_tts_error"
     assert excinfo.value.status_code == 502
     failed = asyncio.run(
         manager.get_session(tenant_id="tenant-1", session_id=session.session_id)
     )
     assert failed.status == "failed"
-    assert failed.error_code == code
+    assert failed.error_code == "voice_tts_error"
 
 
 def test_manager_rejects_turn_after_session_ended() -> None:
@@ -680,14 +743,14 @@ def test_manager_emits_failed_event(caplog: pytest.LogCaptureFixture) -> None:
         )
     )
 
-    with pytest.raises(PlatformError):
-        asyncio.run(
-            manager.process_audio_input(
-                tenant_id="tenant-1",
-                session_id=session.session_id,
-                audio=AudioChunk(data=b"audio", format="pcm"),
-            )
+    result = asyncio.run(
+        manager.process_audio_input(
+            tenant_id="tenant-1",
+            session_id=session.session_id,
+            audio=AudioChunk(data=b"audio", format="pcm"),
         )
+    )
+    assert result.response_text
 
     events = [record.voice_event["event"] for record in caplog.records]
     assert "turn_failed" in events

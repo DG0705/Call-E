@@ -6,6 +6,7 @@ from voice_service.agent_runtime import AgentConfiguration, RuntimeResult
 from voice_service.app import create_voice_app
 from voice_service.session_store import InMemoryVoiceSessionStore
 from voice_service.stt import MockSTTProvider
+from voice_service.telephony.dev_routing import KaariDevRouter
 from voice_service.telephony.mock_provider import MockTelephonyProvider
 from voice_service.telephony.store import InMemoryCallStore
 from voice_service.tts import MockTTSProvider
@@ -40,6 +41,7 @@ def build_client() -> TestClient:
             agent_runtime=FakeAgentRuntimeClient(),
             stt_provider=MockSTTProvider(),
             tts_provider=MockTTSProvider(),
+            dev_inbound_router=KaariDevRouter("1000"),
         )
     )
 
@@ -153,3 +155,55 @@ def test_error_envelope_propagates_request_id() -> None:
         "request_id": "error-request",
     }
     assert response.headers["X-Request-ID"] == "error-request"
+
+
+def test_dev_inbound_route_resolves_kaari_extension() -> None:
+    client = build_client()
+
+    response = client.post(
+        "/api/v1/telephony/dev/inbound",
+        json={
+            "caller_number": "+15550001",
+            "destination_number": "1000",
+            "conversation_id": "conversation-dev-1",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["direction"] == "inbound"
+    assert body["tenant_id"] == "kaari-planters"
+    assert body["agent_id"] == "kaari-sales-agent"
+    assert body["destination_number"] == "1000"
+    assert body["conversation_id"] == "conversation-dev-1"
+
+
+def test_dev_inbound_route_uses_explicit_agent() -> None:
+    client = build_client()
+
+    response = client.post(
+        "/api/v1/telephony/dev/inbound",
+        json={
+            "caller_number": "+15550001",
+            "destination_number": "9999",
+            "tenant_id": "tenant-custom",
+            "agent_id": "agent-custom",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tenant_id"] == "tenant-custom"
+    assert body["agent_id"] == "agent-custom"
+
+
+def test_dev_inbound_route_rejects_unmapped_extension() -> None:
+    client = build_client()
+
+    response = client.post(
+        "/api/v1/telephony/dev/inbound",
+        json={"caller_number": "+15550001", "destination_number": "9999"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "inbound_extension_unmapped"

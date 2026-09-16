@@ -231,6 +231,13 @@ class TelephonyService:
             session_id=session.session_id,
             request_id=request_id,
         )
+        try:
+            await self._play_greeting(
+                call, session_id=session.session_id, request_id=request_id
+            )
+        except PlatformError:
+            await self._mark_failed(call, _TELEPHONY_PROVIDER_ERROR, request_id)
+            raise
         return call
 
     async def process_audio(
@@ -457,6 +464,53 @@ class TelephonyService:
                 status_code=409,
             )
         return call
+
+    async def _play_greeting(
+        self, call: TelephonyCall, *, session_id: str, request_id: str | None
+    ) -> None:
+        """Synthesize and return the agent's opening greeting to the caller.
+
+        The greeting is optional and synthesized with the same voice as regular
+        turns. A synthesis or delivery failure is logged and the call continues,
+        so the agent can still converse once the caller speaks.
+        """
+        audio = await self._voice_manager.synthesize_greeting(
+            tenant_id=call.tenant_id,
+            session_id=session_id,
+            request_id=request_id,
+        )
+        if audio is None:
+            return
+        try:
+            await self._provider.send_audio(call, audio, request_id=request_id)
+        except Exception as exc:
+            log_telephony_event(
+                self._logger,
+                "greeting_delivery_failed",
+                tenant_id=call.tenant_id,
+                agent_id=call.agent_id,
+                call_id=call.call_id,
+                conversation_id=call.conversation_id,
+                session_id=session_id,
+                request_id=request_id,
+                error_code=_TELEPHONY_PROVIDER_ERROR,
+            )
+            raise PlatformError(
+                code=_TELEPHONY_PROVIDER_ERROR,
+                message="Telephony provider could not return the greeting.",
+                status_code=502,
+            ) from exc
+        log_telephony_event(
+            self._logger,
+            "greeting_delivered",
+            tenant_id=call.tenant_id,
+            agent_id=call.agent_id,
+            call_id=call.call_id,
+            conversation_id=call.conversation_id,
+            session_id=session_id,
+            request_id=request_id,
+            content_type=audio.format,
+        )
 
     async def _persist_new_call(
         self, call: TelephonyCall, *, request_id: str | None

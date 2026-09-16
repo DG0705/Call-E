@@ -35,6 +35,7 @@ class Agent(BaseModel):
     personality: str = "professional and helpful"
     language: str = "en"
     voice_id: str | None = None
+    greeting: str | None = None
     goals: list[str] = Field(default_factory=list)
     allowed_tools: list[str] = Field(default_factory=list)
     knowledge_sources: list[str] = Field(default_factory=list)
