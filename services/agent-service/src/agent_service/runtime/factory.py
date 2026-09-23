@@ -20,7 +20,7 @@ class LLMProviderFactory:
         *,
         groq_client_factory: Callable[[str], GroqClient] | None = None,
     ) -> LLMProvider:
-        """Return mock or Groq, falling back safely when no key is configured."""
+        """Return mock or Groq, failing fast when a real credential is missing."""
         if settings.provider == "mock":
             return MockLLMProvider()
         if settings.provider != "groq":
@@ -28,7 +28,10 @@ class LLMProviderFactory:
                 f"Unsupported LLM_PROVIDER '{settings.provider}'. Use 'mock' or 'groq'."
             )
         if settings.groq_api_key is None:
-            return MockLLMProvider()
+            raise LLMProviderConfigurationError(
+                "GROQ_API_KEY must be set when LLM_PROVIDER is 'groq'. "
+                "Use LLM_PROVIDER='mock' for local development without credentials."
+            )
         if settings.groq_model is None:
             raise LLMProviderConfigurationError(
                 "GROQ_MODEL must be set when LLM_PROVIDER is 'groq'."

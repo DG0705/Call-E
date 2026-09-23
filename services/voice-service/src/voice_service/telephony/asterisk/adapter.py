@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 from voice_service.audio import AudioChunk
 from voice_service.telephony.asterisk.media import encode_ulaw
+from voice_service.telephony.asterisk.rtp_ingress import RtpMediaIngress
 from voice_service.telephony.asterisk.transport import (
     AsteriskTransport,
     HttpAsteriskTransport,
@@ -20,6 +21,7 @@ from voice_service.telephony.provider import (
 )
 
 OUTBOUND_CONTEXT = "from-internal"
+EXTERNAL_MEDIA_APP = "call-e"
 
 
 class AsteriskAdapter:
@@ -34,6 +36,7 @@ class AsteriskAdapter:
         username: str | None = None,
         password: str | None = None,
         transport: AsteriskTransport | None = None,
+        media_ingress: RtpMediaIngress | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._username = username
@@ -42,6 +45,7 @@ class AsteriskAdapter:
             base_url=base_url, username=username, password=password
         )
         self._channels: dict[str, str] = {}
+        self._media_ingress = media_ingress
 
     async def start_call(
         self,
@@ -133,8 +137,50 @@ class AsteriskAdapter:
     async def receive_audio(
         self, call: TelephonyCall, *, request_id: str | None = None
     ) -> AudioChunk | None:
-        """No RTP media streaming is implemented at this boundary yet."""
-        return None
+        """Return the oldest decoded inbound PCM frame for the call, if any.
+
+        Frames arrive from Asterisk as mu-law RTP and are decoded to the
+        internal PCM representation by :class:`RtpMediaIngress` at this
+        boundary. Returns ``None`` when no media path is bound or no frame
+        has arrived yet.
+        """
+        if self._media_ingress is None:
+            return None
+        channel_id = self._channel_for(call)
+        return self._media_ingress.receive(channel_id)
+
+    async def bind_media_ingress(
+        self, call: TelephonyCall, *, host: str, port: int
+    ) -> str:
+        """Listen for this call's inbound RTP and return the external host.
+
+        Each call binds its own UDP port; pass the returned ``"host:port"``
+        to :meth:`start_external_media` so Asterisk streams caller audio to
+        this listener. Decoded PCM frames are then drained via
+        :meth:`receive_audio`.
+        """
+        channel_id = self._channel_for(call)
+        if self._media_ingress is None:
+            self._media_ingress = RtpMediaIngress()
+        await self._media_ingress.bind(channel_id, host=host, port=port)
+        return f"{host}:{port}"
+
+    async def start_external_media(
+        self, call: TelephonyCall, *, external_host: str
+    ) -> str:
+        """Create the ARI external-media channel streaming to our listener."""
+        try:
+            external_channel_id = await self._transport.create_external_media(
+                app=EXTERNAL_MEDIA_APP,
+                external_host=external_host,
+                media_format="ulaw",
+            )
+        except Exception as exc:
+            raise TelephonyProviderError(
+                "Asterisk could not start external media for the call."
+            ) from exc
+        call.metadata["external_channel_id"] = external_channel_id
+        return external_channel_id
 
     async def send_audio(
         self,
@@ -162,6 +208,9 @@ class AsteriskAdapter:
         call.status = "ended"
         call.updated_at = now
         call.ended_at = now
+        if self._media_ingress is not None:
+            self._media_ingress.release(channel_id)
+            self._channels.pop(call.call_id, None)
         return call
 
     async def transfer(

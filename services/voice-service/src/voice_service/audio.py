@@ -151,3 +151,35 @@ def encode_ulaw(chunk: AudioChunk) -> bytes:
 def ulaw_payload_size(sample_count: int) -> int:
     """Return the number of bytes a mu-law payload needs for samples."""
     return sample_count * _ULAW_BYTES_PER_SAMPLE
+
+
+def _ulaw_to_linear(code: int) -> int:
+    """Decode one G.711 mu-law byte to a 16-bit linear PCM sample."""
+    code = (~code) & 0xFF
+    sign = code & 0x80
+    exponent = (code >> 4) & 0x07
+    mantissa = code & 0x0F
+    sample = ((mantissa << 3) + _ULAW_BIAS) << exponent
+    sample -= _ULAW_BIAS
+    return -sample if sign else sample
+
+
+def decode_ulaw(
+    payload: bytes,
+    *,
+    sample_rate: int = PCM_DEFAULT_SAMPLE_RATE,
+    channels: int = PCM_DEFAULT_CHANNELS,
+    metadata: dict[str, Any] | None = None,
+) -> AudioChunk:
+    """Decode G.711 mu-law bytes (Asterisk/RTP) to internal 16-bit PCM audio."""
+    if not payload:
+        raise ValueError("decode_ulaw requires a non-empty mu-law payload.")
+    samples = [_ulaw_to_linear(byte) for byte in payload]
+    return AudioChunk(
+        data=struct.pack(f"<{len(samples)}h", *samples),
+        format="pcm",
+        sample_rate=sample_rate,
+        channels=channels,
+        sample_width=PCM_DEFAULT_SAMPLE_WIDTH,
+        metadata={**(metadata or {}), "ulaw_decoded_from": "ulaw"},
+    )

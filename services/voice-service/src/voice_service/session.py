@@ -327,6 +327,17 @@ class VoiceSessionManager:
             provider=runtime_result.provider_name,
             model=runtime_result.model_name,
         )
+        log_voice_event(
+            self._logger,
+            "tts_started",
+            tenant_id=tenant_id,
+            agent_id=session.agent_id,
+            session_id=session.session_id,
+            conversation_id=session.conversation_id,
+            request_id=request_id,
+            output_format=session.output_audio_format,
+            text_chars=len(runtime_result.text),
+        )
         try:
             synthesis = await self._tts_provider.synthesize(
                 text=runtime_result.text,
@@ -397,6 +408,18 @@ class VoiceSessionManager:
         session is marked failed and a platform error is raised to drive a
         graceful call termination.
         """
+        log_voice_event(
+            self._logger,
+            "tts_started",
+            tenant_id=session.tenant_id,
+            agent_id=session.agent_id,
+            session_id=session.session_id,
+            conversation_id=session.conversation_id,
+            request_id=request_id,
+            stage="fallback",
+            output_format=session.output_audio_format,
+            text_chars=len(text),
+        )
         try:
             synthesis = await self._tts_provider.synthesize(
                 text=text,

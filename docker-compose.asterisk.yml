@@ -10,5 +10,14 @@ services:
     ports:
       - "5060:5060/udp"
       - "8088:8088"
+      - "10000-10099:10000-10099/udp"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - asterisk -rx "core show version" | grep -i asterisk
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - call-e-network

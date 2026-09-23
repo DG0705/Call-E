@@ -10,6 +10,7 @@ from typing import Final
 
 from voice_service.audio import (
     AudioChunk,
+    decode_ulaw,
     encode_ulaw,
     ulaw_payload_size,
 )
@@ -20,6 +21,7 @@ _ULAW_BYTES_PER_SAMPLE: Final = 1
 
 __all__ = [
     "AudioChunk",
+    "decode_ulaw",
     "encode_ulaw",
     "ulaw_payload_size",
     "_ULAW_BIAS",

@@ -2,6 +2,7 @@
 
 import asyncio
 
+import pytest
 from fastapi.testclient import TestClient
 
 from agent_service.app import create_agent_app
@@ -459,12 +460,11 @@ def test_provider_factory_selects_mock_and_groq_without_network() -> None:
     assert isinstance(groq, GroqProvider)
 
 
-def test_provider_factory_falls_back_without_key_and_rejects_unknown_provider() -> None:
-    fallback = LLMProviderFactory.create(
-        LLMSettings(provider="groq", groq_model="test-model")
-    )
-
-    assert isinstance(fallback, MockLLMProvider)
+def test_provider_factory_fails_fast_without_key_and_rejects_unknown_provider() -> None:
+    with pytest.raises(LLMProviderConfigurationError, match="GROQ_API_KEY"):
+        LLMProviderFactory.create(
+            LLMSettings(provider="groq", groq_model="test-model")
+        )
     try:
         LLMProviderFactory.create(LLMSettings(provider="unsupported"))
     except LLMProviderConfigurationError as exc:

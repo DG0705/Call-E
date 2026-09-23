@@ -35,6 +35,7 @@ class FakeAsteriskTransport:
         self.answer_calls: list[str] = []
         self.hangup_calls: list[str] = []
         self.play_calls: list[dict[str, object]] = []
+        self.external_media_calls: list[dict[str, str]] = []
 
     async def originate(
         self,
@@ -71,13 +72,26 @@ class FakeAsteriskTransport:
     async def play_media(self, channel_id: str, media: bytes) -> None:
         self.play_calls.append({"channel_id": channel_id, "media": media})
 
+    async def create_external_media(
+        self, *, app: str, external_host: str, media_format: str = "ulaw"
+    ) -> str:
+        self.external_media_calls.append(
+            {"app": app, "external_host": external_host, "media_format": media_format}
+        )
+        return "external-channel-1"
 
-def build_adapter(*, transport: FakeAsteriskTransport | None = None) -> AsteriskAdapter:
+
+def build_adapter(
+    *,
+    transport: FakeAsteriskTransport | None = None,
+    media_ingress: object | None = None,
+) -> AsteriskAdapter:
     return AsteriskAdapter(
         base_url="http://asterisk:8088",
         username="user",
         password="secret",
         transport=transport or FakeAsteriskTransport(),
+        media_ingress=media_ingress,  # type: ignore[arg-type]
     )
 
 
@@ -237,7 +251,7 @@ def test_asterisk_adapter_sends_encoded_audio_to_channel() -> None:
     ]
 
 
-def test_asterisk_adapter_receive_audio_is_unavailable_for_now() -> None:
+def test_asterisk_adapter_receive_audio_returns_none_without_media_path() -> None:
     adapter = build_adapter()
     call = asyncio.run(
         adapter.start_call(
@@ -344,3 +358,167 @@ def test_settings_default_to_mock(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.asterisk_url is None
     assert settings.asterisk_username is None
     assert settings.asterisk_password is None
+
+
+def test_ulaw_decode_roundtrip_is_stable_for_every_code() -> None:
+    from voice_service.audio import decode_ulaw
+
+    for code in range(256):
+        decoded = decode_ulaw(bytes([code]))
+        assert decoded.format == "pcm"
+        assert decoded.sample_rate == 8000
+        if code == 0x7F:
+            # Mu-law negative zero decodes to digital silence, like 0xFF.
+            assert decoded.data == b"\x00\x00"
+            continue
+        assert encode_ulaw(decoded) == bytes([code])
+
+
+def test_ulaw_decode_rejects_empty_payload() -> None:
+    from voice_service.audio import decode_ulaw
+
+    with pytest.raises(ValueError):
+        decode_ulaw(b"")
+
+
+def test_rtp_ingress_queues_decoded_pcm_frames() -> None:
+    from voice_service.telephony.asterisk.rtp_ingress import (
+        RtpMediaIngress,
+        build_rtp_datagram,
+    )
+
+    ingress = RtpMediaIngress()
+    datagram = build_rtp_datagram(bytes([0xFF] * 160), sequence=1, timestamp=160)
+
+    chunk = ingress.ingest("channel-1", datagram)
+
+    assert chunk is not None
+    assert chunk.format == "pcm"
+    assert len(chunk.data) == 320
+    assert ingress.pending("channel-1") == 1
+    assert ingress.receive("channel-1") == chunk
+    assert ingress.receive("channel-1") is None
+
+
+def test_rtp_ingress_ignores_non_voice_datagrams() -> None:
+    from voice_service.telephony.asterisk.rtp_ingress import (
+        RtpMediaIngress,
+        build_rtp_datagram,
+    )
+
+    ingress = RtpMediaIngress()
+
+    assert ingress.ingest("channel-1", b"short") is None
+    assert ingress.ingest("channel-1", b"\x00" * 20) is None
+    alaw = bytearray(build_rtp_datagram(bytes([0xD5] * 160)))
+    alaw[1] = 8
+    assert ingress.ingest("channel-1", bytes(alaw)) is None
+    assert ingress.pending("channel-1") == 0
+
+
+def test_adapter_receive_audio_drains_decoded_inbound_pcm() -> None:
+    from voice_service.telephony.asterisk.rtp_ingress import (
+        RtpMediaIngress,
+        build_rtp_datagram,
+    )
+
+    ingress = RtpMediaIngress()
+    adapter = build_adapter(media_ingress=ingress)
+    call = asyncio.run(
+        adapter.start_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            destination_number="+15550002",
+        )
+    )
+    ingress.ingest("channel-1", build_rtp_datagram(bytes([0xFF] * 160)))
+
+    received = asyncio.run(adapter.receive_audio(call))
+
+    assert received is not None
+    assert received.format == "pcm"
+    assert len(received.data) == 320
+    assert asyncio.run(adapter.receive_audio(call)) is None
+
+
+def test_adapter_start_external_media_records_channel() -> None:
+    transport = FakeAsteriskTransport()
+    adapter = build_adapter(transport=transport)
+    call = asyncio.run(
+        adapter.start_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            destination_number="+15550002",
+        )
+    )
+
+    external_id = asyncio.run(
+        adapter.start_external_media(call, external_host="voice-service:10000")
+    )
+
+    assert external_id == "external-channel-1"
+    assert call.metadata["external_channel_id"] == "external-channel-1"
+    assert transport.external_media_calls == [
+        {
+            "app": "call-e",
+            "external_host": "voice-service:10000",
+            "media_format": "ulaw",
+        }
+    ]
+
+
+def test_adapter_hangup_releases_media_ingress() -> None:
+    from voice_service.telephony.asterisk.rtp_ingress import (
+        RtpMediaIngress,
+        build_rtp_datagram,
+    )
+
+    ingress = RtpMediaIngress()
+    adapter = build_adapter(media_ingress=ingress)
+    call = asyncio.run(
+        adapter.start_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            destination_number="+15550002",
+        )
+    )
+    ingress.ingest("channel-1", build_rtp_datagram(bytes([0xFF] * 160)))
+
+    asyncio.run(adapter.hangup(call))
+
+    assert ingress.pending("channel-1") == 0
+
+
+def test_http_transport_create_external_media_posts_ari() -> None:
+    import httpx
+
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["params"] = dict(request.url.params)
+        return httpx.Response(200, json={"id": "ext-9"}, request=request)
+
+    transport = HttpAsteriskTransport(
+        base_url="http://asterisk:8088",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler=handler)),
+    )
+
+    channel_id = asyncio.run(
+        transport.create_external_media(
+            app="call-e", external_host="voice-service:10000"
+        )
+    )
+
+    assert channel_id == "ext-9"
+    assert str(seen["url"]).startswith(
+        "http://asterisk:8088/ari/channels/externalMedia"
+    )
+    assert seen["params"] == {
+        "app": "call-e",
+        "externalHost": "voice-service:10000",
+        "format": "ulaw",
+    }

@@ -33,7 +33,41 @@ RABBITMQ_DEFAULT_PASS=use-a-strong-local-password
 TRAEFIK_DASHBOARD=true
 ```
 
-The `.env` file is ignored by Git. Do not commit credentials.
+The `.env` file is ignored by Git. Do not commit credentials. The root
+`.env.example` documents every variable: core credentials plus the
+`LLM_PROVIDER`/`GROQ_*`, `VOICE_STT_PROVIDER`/`DEEPGRAM_*`,
+`VOICE_TTS_PROVIDER`/`ELEVENLABS_*`, `TELEPHONY_PROVIDER`/`ASTERISK_*`, and
+`KAARI_DEV_EXTENSION` settings (all default to `mock`).
+
+## Running the Kaari phone-call development stack
+
+Exact setup (see `services/voice-service/README.md` for the full call guide):
+
+1. `Copy-Item .env.example .env`
+2. Fill real credentials in `.env` (or leave `mock` providers for local dev).
+3. Set local Asterisk passwords in
+   `services/voice-service/telephony/asterisk/config/pjsip.conf` (`dev-phone`)
+   and `ari.conf` (`call-e-user`); never commit them.
+4. Start core services: `docker compose up -d --build mongodb rabbitmq
+   traefik agent-service knowledge-service voice-service`
+5. Start Asterisk: `docker compose -f docker-compose.yml
+   -f docker-compose.asterisk.yml up -d --build asterisk`
+6. Verify: `.venv\Scripts\python.exe tools\dev_check.py` (expect `RESULT: OK`).
+7. Register a SIP softphone against `localhost:5060` as `dev-phone`.
+8. Dial Kaari extension `1000` (or `$KAARI_DEV_EXTENSION`).
+9. Conduct the test conversation (greeting → requirement → pricing → lead).
+10. Inspect MongoDB: `conversations` for the transcript, `leads` for the
+    created sales lead (`tenant_id=kaari-planters`).
+
+Live provider smoke (real Groq/Deepgram/ElevenLabs/ARI calls, local only):
+
+```powershell
+.venv\Scripts\python.exe tools\smoke_live_providers.py --live
+```
+
+Note: on Docker Desktop for Windows the Traefik docker provider may fail to
+read the Engine socket, so host-port routes can 404 while services stay
+healthy in-network; use `docker compose exec <service>` to reach them.
 
 ## Running locally
 

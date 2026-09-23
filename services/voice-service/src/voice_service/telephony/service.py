@@ -202,6 +202,16 @@ class TelephonyService:
             conversation_id=call.conversation_id,
             request_id=request_id,
         )
+        log_telephony_event(
+            self._logger,
+            "media_channel_established",
+            tenant_id=call.tenant_id,
+            agent_id=call.agent_id,
+            call_id=call.call_id,
+            conversation_id=call.conversation_id,
+            request_id=request_id,
+            provider=getattr(self._provider, "provider_name", "unknown"),
+        )
         try:
             session = await self._voice_manager.create_session(
                 tenant_id=call.tenant_id,
@@ -349,6 +359,20 @@ class TelephonyService:
             audio = await self._provider.receive_audio(call, request_id=request_id)
             if audio is None:
                 break
+            log_telephony_event(
+                self._logger,
+                "audio_packet_received",
+                tenant_id=call.tenant_id,
+                agent_id=call.agent_id,
+                call_id=call.call_id,
+                conversation_id=call.conversation_id,
+                session_id=str(call.metadata.get("session_id"))
+                if call.metadata.get("session_id")
+                else None,
+                request_id=request_id,
+                input_format=audio.format,
+                input_bytes=len(audio.data),
+            )
             results.append(
                 await self.process_audio(
                     tenant_id=tenant_id,

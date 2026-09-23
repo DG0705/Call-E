@@ -44,6 +44,12 @@ class AsteriskTransport(Protocol):
         """Stream encoded audio onto the channel toward the phone."""
         ...
 
+    async def create_external_media(
+        self, *, app: str, external_host: str, media_format: str = "ulaw"
+    ) -> str:
+        """Create an ARI external-media channel and return its channel id."""
+        ...
+
 
 class HttpAsteriskTransport:
     """HTTP foundation mapping telephony operations onto ARI REST calls."""
@@ -109,6 +115,25 @@ class HttpAsteriskTransport:
         raise AsteriskTransportError(
             "RTP media streaming is not implemented in this foundation."
         )
+
+    async def create_external_media(
+        self, *, app: str, external_host: str, media_format: str = "ulaw"
+    ) -> str:
+        response = await self._client.post(
+            f"{self._base_url}/ari/channels/externalMedia",
+            params={
+                "app": app,
+                "externalHost": external_host,
+                "format": media_format,
+            },
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or "id" not in payload:
+            raise AsteriskTransportError(
+                "ARI did not return an external-media channel id."
+            )
+        return str(payload["id"])
 
     async def close(self) -> None:
         """Release the HTTP client when this transport owns it."""

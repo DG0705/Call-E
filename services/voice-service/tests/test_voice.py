@@ -303,19 +303,15 @@ def test_provider_factories_select_mock_and_reject_unknown() -> None:
         TTSProviderFactory.create(TTSSettings(provider="azure"))
 
 
-def test_provider_factories_fallback_to_mock_without_credentials() -> None:
-    from voice_service.stt_providers import DeepgramSTTProvider
-    from voice_service.tts_providers import ElevenLabsTTSProvider
-
-    stt = STTProviderFactory.create(
-        STTSettings(provider="deepgram", deepgram_api_key=None)
-    )
-    tts = TTSProviderFactory.create(
-        TTSSettings(provider="elevenlabs", elevenlabs_api_key=None)
-    )
-
-    assert isinstance(stt, MockSTTProvider)
-    assert isinstance(tts, MockTTSProvider)
+def test_provider_factories_fail_fast_without_credentials() -> None:
+    with pytest.raises(VoiceProviderConfigurationError, match="DEEPGRAM_API_KEY"):
+        STTProviderFactory.create(
+            STTSettings(provider="deepgram", deepgram_api_key=None)
+        )
+    with pytest.raises(VoiceProviderConfigurationError, match="ELEVENLABS_API_KEY"):
+        TTSProviderFactory.create(
+            TTSSettings(provider="elevenlabs", elevenlabs_api_key=None)
+        )
 
 
 def test_provider_factories_select_real_providers_with_credentials() -> None:
@@ -728,6 +724,7 @@ def test_manager_emits_lifecycle_events(caplog: pytest.LogCaptureFixture) -> Non
         "turn_started",
         "transcription_completed",
         "runtime_response_generated",
+        "tts_started",
         "synthesis_completed",
     ]
     for record in caplog.records:

@@ -83,12 +83,14 @@ and is not part of the synchronous audio path.
   call lifecycle and exposes `queue_audio` / `sent_audio` test helpers. This is
   the default and the engine of the mock end-to-end test.
 - `AsteriskAdapter` (`telephony/asterisk/`) is the Asterisk/SIP implementation
-  behind the boundary. It converts the internal audio representation (PCM,
-  8 kHz, mono, 16-bit little-endian) to G.711 mu-law via
-  `telephony/asterisk/media.py` at the adapter boundary. Real inbound media
-  streaming (RTP/ARI) and human transfer are not implemented yet; outbound
-  origination, answering, hangup, and play-media are mapped onto an ARI HTTP
-  foundation (`telephony/asterisk/transport.py`).
+  behind the boundary. Codec conversion stays at this boundary: outbound PCM
+  (8 kHz, mono, 16-bit little-endian) is encoded to G.711 mu-law via
+  `telephony/asterisk/media.py`, and inbound mu-law RTP is decoded back to
+  internal PCM by `telephony/asterisk/rtp_ingress.py`, which queues decoded
+  frames per ARI channel for `receive_audio`. Outbound origination,
+  answering, hangup, and external-media channel creation are mapped onto an
+  ARI HTTP foundation (`telephony/asterisk/transport.py`); human transfer is
+  not implemented.
 
   Configuration: `TELEPHONY_PROVIDER=asterisk`, `ASTERISK_URL`,
   `ASTERISK_USERNAME`, `ASTERISK_PASSWORD`. Credentials are never logged.
@@ -125,10 +127,14 @@ against a reachable `ASTERISK_URL` to exercise the adapter.
 
 - Turn-based JSON API for development. No barge-in, call recording storage, or
   human transfer/escalation yet; `TelephonyProvider.transfer` is a placeholder.
-- Inbound media streaming from a real phone (RTP/ARI) is not implemented; the
-  inbound call flow is exercised end-to-end via the mock provider.
-- Mock STT/TTS/telephony providers only; provider factories reject unknown
-  configurations.
+- Inbound RTP from a real phone is decoded to PCM per channel
+  (`rtp_ingress.py`); bridging the phone leg to the ARI external-media
+  channel and outbound RTP playback still require live Asterisk wiring (see
+  "Remaining live-call blockers" below).
+- Provider factories fail fast: selecting `deepgram`/`elevenlabs`/`groq`/
+  `asterisk` without its required credentials raises a configuration error
+  at startup instead of silently using mocks. Mocks are used only when
+  `provider=mock`.
 - Persistence defaults to MongoDB (`voice_sessions` and `calls` collections,
   both with tenant-scoped indexes) via `create_voice_database`;
   `InMemoryVoiceSessionStore` / `InMemoryCallStore` are available for tests and
@@ -323,14 +329,20 @@ This validates the full chain without any external dependencies.
 | Call rings but no greeting | TTS failed or Asterisk media not playing | Check `ELEVENLABS_API_KEY` and Asterisk ARI connection; logs show `audio_synthesized` event |
 | "Agent configuration unavailable" | Kaari agent not seeded | Ensure `AGENT_SERVICE_SEED=true` and MongoDB reachable; check `call_started` event |
 | STT returns empty transcript | Audio format mismatch | Verify Asterisk sends μ-law 8 kHz; voice engine expects PCM/WAV/μ-law |
-| Groq errors / timeout | `GROQ_API_KEY` missing or model name wrong | Check `LLM_PROVIDER=groq` + valid key/model; runtime falls back to mock if unset |
+| Groq errors / timeout | `GROQ_API_KEY` missing or model name wrong | Check `LLM_PROVIDER=groq` + valid key/model; startup fails fast with a clear error if unset |
 | Asterisk ARI 401/403 | `ASTERISK_USERNAME`/`PASSWORD` mismatch | Match `ari.conf` and `voice-service` env vars |
 | SIP registration fails | `pjsip.conf` password mismatch | Update local `pjsip.conf` with your softphone password |
 
-Logs to watch (structured JSON):
-- `voice_service.events` — `session_created`, `transcription_completed`, `audio_synthesized`, `turn_failed`
-- `voice_service.telephony.events` — `call_created`, `call_started`, `call_ended`, `call_failed`
-- `agent_service.runtime.events` — `agent_turn_started`, `tool_called`, `tool_completed`, `response_generated`
+Logs to watch (structured JSON, IDs only — never audio, transcripts, or secrets):
+- `voice_service.events` — `session_created`, `turn_started`,
+  `transcription_completed`, `runtime_response_generated`, `tts_started`,
+  `synthesis_completed`/`audio_synthesized`, `turn_failed`, `session_ended`
+- `voice_service.telephony.events` — `call_created`, `call_ringing`,
+  `call_answered`, `media_channel_established`, `audio_packet_received`,
+  `transcript_produced`, `agent_response_produced`, `audio_returned`,
+  `call_started`, `call_ended`, `call_failed`
+- `agent_service.runtime.events` — `agent_turn_started`, `tool_called`,
+  `tool_completed`, `response_generated`
 
 ## Inspecting results
 
@@ -348,7 +360,67 @@ After a call ends:
 | LLM | Returns "Mock response: ..." | Groq API |
 | Telephony | In-memory `MockTelephonyProvider` | Asterisk ARI adapter |
 | Credentials | None needed | `.env` with real API keys |
+| Missing credential | N/A | Startup fails fast with a clear error |
 | Use case | CI, local dev, unit tests | Live demos, manual QA |
+
+## Media format path
+
+Enforced architecture (conversion only at the Asterisk adapter boundary):
+
+```
+Asterisk μ-law RTP (8 kHz)
+  → rtp_ingress.py: parse RTP, decode_ulaw → internal PCM (8 kHz, mono, 16-bit LE)
+  → VoiceSessionManager → Deepgram (encoding=slinear16 or mulaw passthrough)
+  → AgentRuntime → ElevenLabs (pcm_8000)
+  → internal PCM → media.py encode_ulaw → Asterisk μ-law RTP
+```
+
+`VoiceSessionManager` only ever receives normalized `AudioChunk` objects and
+never sees RTP. Inbound wiring per call: `bind_media_ingress(call, host, port)`
+then `start_external_media(call, external_host)` (ARI `externalMedia`, format
+`ulaw`, app `call-e`). RTP ports 10000–10099/udp are published by
+`docker-compose.asterisk.yml` and constrained by `rtp.conf`.
+
+## Development check and live smoke
+
+Validate the local stack without printing secrets:
+
+```powershell
+# Environment + dependency + Kaari seed check (works in mock mode)
+.venv\Scripts\python.exe tools\dev_check.py
+
+# Live provider smoke (requires --live AND real keys in the environment)
+.venv\Scripts\python.exe tools\smoke_live_providers.py --live
+```
+
+`dev_check.py` reports `CALL-E DEVELOPMENT CHECK` (MongoDB, RabbitMQ, Groq,
+Deepgram, ElevenLabs, Asterisk, Kaari Agent). `smoke_live_providers.py`
+performs real Groq/Deepgram/ElevenLabs/ARI calls plus Kaari lookup and never
+runs in CI.
+
+## Remaining live-call blockers
+
+Verified against the running stack; each item is the exact remaining work:
+
+1. **ARI phone-leg ↔ external-media bridge** (`transport.py`,
+   `extensions.conf`): `create_external_media` maps the real ARI endpoint,
+   but nothing yet bridges the Stasis phone channel to the external-media
+   channel, so live caller RTP never reaches the ingress listener. Required
+   action: after `StasisStart`, create an ARI bridge and add both channels
+   (needs the ARI WebSocket event stream, also not yet implemented).
+2. **Outbound RTP playback** (`transport.py::play_media`): ARI plays named
+   sounds, not raw bytes, so synthesized PCM cannot be streamed yet. Required
+   action: serve TTS output over HTTP and play via ARI `/play`, or stream it
+   back through the external-media RTP socket.
+3. **Real provider credentials**: no `GROQ_API_KEY`, `DEEPGRAM_API_KEY`,
+   `ELEVENLABS_API_KEY`, or ARI/SIP passwords exist in this environment, so
+   criteria 6–8 and 10–13 are proven by fakes/unit tests, not live calls.
+4. **Traefik Docker discovery on this host**: Traefik v3.2/v3.5 cannot query
+   the Docker Desktop (Engine 29) socket proxy (`400 Bad Request`, empty
+   message), so host-port routes (`localhost/voice-service/...`) 404 while
+   every service is healthy in-network. Required action: upgrade Traefik past
+   the incompatibility or add a static file provider; meanwhile reach
+   services via `docker compose exec`.
 
 ---
 

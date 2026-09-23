@@ -206,7 +206,10 @@ curl -X POST 'http://localhost/api/v1/agents/agent-1/runtime/test?tenant_id=tena
   -d '{"conversation_id":"demo-1","message":"Hello"}'
 ```
 
-Phone calling, telephony, STT/TTS, and production LLM providers other than Groq
-deliberately come later. This service does not implement those integrations or
-business workflows. RAG groundwork is provided through the optional
-`KnowledgeRetriever` boundary, which is implemented by the `knowledge-service`.
+Phone calling is delivered through the voice-service: telephony, STT/TTS, and
+the Groq production LLM provider are implemented behind provider boundaries
+(see `services/voice-service/README.md` → "How to run a real Kaari phone
+call"). Provider factories fail fast when a real provider is selected without
+its credentials; mocks are used only when `provider=mock`. RAG groundwork is
+provided through the optional `KnowledgeRetriever` boundary, which is
+implemented by the `knowledge-service`.

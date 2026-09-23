@@ -138,6 +138,8 @@ services:
     environment:
       <<: *fastapi-environment
       SERVICE_NAME: voice-service
+      AGENT_SERVICE_URL: ${AGENT_SERVICE_URL:-http://agent-service:8000}
+      VOICE_DATABASE_NAME: ${VOICE_DATABASE_NAME:-call_e_voice}
       VOICE_STT_PROVIDER: ${VOICE_STT_PROVIDER:-mock}
       DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
       DEEPGRAM_MODEL: ${DEEPGRAM_MODEL:-}
@@ -235,6 +237,7 @@ services:
     environment:
       <<: *fastapi-environment
       SERVICE_NAME: agent-service
+      CORE_DATABASE_NAME: ${CORE_DATABASE_NAME:-call_e_core}
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL: ${GROQ_MODEL:-}
