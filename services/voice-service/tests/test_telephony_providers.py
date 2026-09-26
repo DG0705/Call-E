@@ -360,6 +360,156 @@ def test_settings_default_to_mock(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.asterisk_password is None
 
 
+def test_rtp_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    from voice_service.telephony.config import load_rtp_settings
+
+    for name in (
+        "VOICE_RTP_HOST",
+        "VOICE_RTP_PORT_START",
+        "VOICE_RTP_PORT_COUNT",
+        "VOICE_RTP_FIRST_PACKET_TIMEOUT_SECONDS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    settings = load_rtp_settings()
+
+    assert settings.host == "voice-service"
+    assert settings.port_start == 20000
+    assert settings.port_count == 100
+    assert settings.first_packet_timeout_seconds == 10.0
+
+
+def test_live_call_settings_follow_provider_and_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from voice_service.telephony.config import load_live_call_settings
+
+    monkeypatch.delenv("ASTERISK_LIVE_CALLS", raising=False)
+    assert load_live_call_settings(telephony_provider="asterisk").enabled is True
+    assert load_live_call_settings(telephony_provider="mock").enabled is False
+    assert load_live_call_settings(telephony_provider="asterisk").ari_app == "call-e"
+
+    monkeypatch.setenv("ASTERISK_LIVE_CALLS", "false")
+    assert load_live_call_settings(telephony_provider="asterisk").enabled is False
+    monkeypatch.setenv("ASTERISK_LIVE_CALLS", "true")
+    assert load_live_call_settings(telephony_provider="mock").enabled is True
+
+
+def test_rtp_packetizer_sequences_and_timestamps() -> None:
+    import struct
+
+    from voice_service.telephony.asterisk.rtp_egress import RtpPacketizer
+
+    packetizer = RtpPacketizer(ssrc=1234, sequence=100, timestamp=800)
+    chunk = AudioChunk(data=b"\x00\x00" * 320, format="pcm")
+
+    datagrams = packetizer.packetize(chunk)
+
+    assert len(datagrams) == 2
+    first = struct.unpack(">BBHII", datagrams[0][:12])
+    second = struct.unpack(">BBHII", datagrams[1][:12])
+    assert first[0] >> 6 == 2
+    assert (first[1] & 0x7F) == 0
+    assert (first[2], first[3], first[4]) == (100, 800, 1234)
+    assert (second[2], second[3], second[4]) == (101, 960, 1234)
+    assert len(datagrams[0][12:]) == 160
+
+
+def test_rtp_packetizer_roundtrips_through_decode() -> None:
+    from voice_service.audio import decode_ulaw
+    from voice_service.telephony.asterisk.rtp_egress import RtpPacketizer
+
+    samples = bytes([i % 256 for i in range(320)])
+    packetizer = RtpPacketizer(ssrc=7)
+
+    datagrams = packetizer.packetize(AudioChunk(data=samples, format="pcm"))
+
+    assert len(datagrams) == 1
+    assert decode_ulaw(datagrams[0][12:]).format == "pcm"
+
+
+def test_rtp_egress_sender_delivers_udp_datagrams() -> None:
+    import socket
+
+    from voice_service.telephony.asterisk.rtp_egress import RtpEgressSender
+
+    receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    receiver.bind(("127.0.0.1", 0))
+    receiver.settimeout(5)
+    port = receiver.getsockname()[1]
+
+    async def main() -> int:
+        sender = RtpEgressSender()
+        try:
+            return await sender.send(
+                "chan-1",
+                ("127.0.0.1", port),
+                AudioChunk(data=b"\x00\x00" * 160, format="pcm"),
+            )
+        finally:
+            sender.close()
+
+    try:
+        sent = asyncio.run(main())
+        packet, _ = receiver.recvfrom(4096)
+    finally:
+        receiver.close()
+
+    assert sent == 1
+    assert len(packet) == 12 + 160
+    assert packet[0] >> 6 == 2
+    assert (packet[1] & 0x7F) == 0
+
+
+def test_rtp_egress_release_drops_channel_state() -> None:
+    from voice_service.telephony.asterisk.rtp_egress import RtpEgressSender
+
+    sender = RtpEgressSender()
+    sender.register("chan-1", ssrc=9)
+
+    assert sender.pending_packets("chan-1") is not None
+    sender.release("chan-1")
+
+    assert sender.pending_packets("chan-1") is None
+
+
+def test_adapter_send_audio_uses_egress_when_bound() -> None:
+    import socket
+
+    transport = FakeAsteriskTransport()
+    adapter = build_adapter(transport=transport)
+    call = asyncio.run(
+        adapter.start_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            destination_number="+15550002",
+        )
+    )
+    receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    receiver.bind(("127.0.0.1", 0))
+    receiver.settimeout(5)
+    port = receiver.getsockname()[1]
+
+    async def main() -> None:
+        try:
+            adapter.bind_egress(call, remote_host="127.0.0.1", remote_port=port)
+            await adapter.send_audio(
+                call, AudioChunk(data=b"\x00\x00" * 160, format="pcm")
+            )
+        finally:
+            await adapter.close()
+
+    try:
+        asyncio.run(main())
+        packet, _ = receiver.recvfrom(4096)
+    finally:
+        receiver.close()
+
+    assert transport.play_calls == []
+    assert len(packet) == 12 + 160
+
+
 def test_ulaw_decode_roundtrip_is_stable_for_every_code() -> None:
     from voice_service.audio import decode_ulaw
 
@@ -522,3 +672,109 @@ def test_http_transport_create_external_media_posts_ari() -> None:
         "externalHost": "voice-service:10000",
         "format": "ulaw",
     }
+
+
+def test_http_transport_sends_basic_auth_when_configured() -> None:
+    import base64
+
+    import httpx
+
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["authorization"] = request.headers.get("authorization", "")
+        return httpx.Response(200, json={"id": "chan-7"}, request=request)
+
+    transport = HttpAsteriskTransport(
+        base_url="http://asterisk:8088",
+        username="call-e-user",
+        password="secret",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler=handler)),
+    )
+
+    channel_id = asyncio.run(
+        transport.originate(
+            endpoint="PJSIP/1000", context="from-internal", extension="1000"
+        )
+    )
+
+    assert channel_id == "chan-7"
+    assert seen["authorization"] == "Basic " + base64.b64encode(
+        b"call-e-user:secret"
+    ).decode()
+
+
+def test_http_transport_sends_no_auth_header_without_credentials() -> None:
+    import httpx
+
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["authorization"] = request.headers.get("authorization", "")
+        return httpx.Response(200, json={"id": "chan-7"}, request=request)
+
+    transport = HttpAsteriskTransport(
+        base_url="http://asterisk:8088",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler=handler)),
+    )
+
+    asyncio.run(
+        transport.originate(
+            endpoint="PJSIP/1000", context="from-internal", extension="1000"
+        )
+    )
+
+    assert seen["authorization"] == ""
+
+
+def test_http_transport_bridge_lifecycle() -> None:
+    import httpx
+
+    seen: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, str(request.url).split("?")[0]))
+        if request.method == "POST" and request.url.path == "/ari/bridges":
+            return httpx.Response(200, json={"id": "bridge-1"}, request=request)
+        return httpx.Response(204, request=request)
+
+    transport = HttpAsteriskTransport(
+        base_url="http://asterisk:8088",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler=handler)),
+    )
+
+    bridge_id = asyncio.run(transport.create_bridge())
+    asyncio.run(transport.add_channel_to_bridge(bridge_id, "chan-1"))
+    asyncio.run(transport.add_channel_to_bridge(bridge_id, "chan-2"))
+    asyncio.run(transport.destroy_bridge(bridge_id))
+
+    assert bridge_id == "bridge-1"
+    assert seen == [
+        ("POST", "http://asterisk:8088/ari/bridges"),
+        ("POST", "http://asterisk:8088/ari/bridges/bridge-1/addChannel"),
+        ("POST", "http://asterisk:8088/ari/bridges/bridge-1/addChannel"),
+        ("DELETE", "http://asterisk:8088/ari/bridges/bridge-1"),
+    ]
+
+
+def test_http_transport_accepts_pending_stasis_channel() -> None:
+    transport = HttpAsteriskTransport(base_url="http://asterisk:8088")
+
+    asyncio.run(
+        transport.note_stasis_channel(
+            "chan-live-1", caller_number="+15550001", destination_number="1000"
+        )
+    )
+    channel_id = asyncio.run(
+        transport.accept_inbound(
+            caller_number="+15550001", destination_number="1000"
+        )
+    )
+
+    assert channel_id == "chan-live-1"
+    with pytest.raises(AsteriskTransportError):
+        asyncio.run(
+            transport.accept_inbound(
+                caller_number="+15550001", destination_number="1000"
+            )
+        )

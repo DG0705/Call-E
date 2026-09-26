@@ -39,12 +39,70 @@ sys.path.insert(0, os.path.join(ROOT, "services", "voice-service", "src"))
 RESULTS: list[tuple[str, bool, str]] = []
 
 
+def _load_dotenv_values() -> dict[str, str]:
+    """Parse root .env KEY=VALUE pairs (process env wins; never printed)."""
+    values: dict[str, str] = {}
+    try:
+        with open(os.path.join(ROOT, ".env"), encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.strip()
+                if key and key not in values:
+                    values[key] = value.strip()
+    except OSError:
+        pass
+    return values
+
+
+_DOTENV_VALUES = _load_dotenv_values()
+
+
+def env_value(name: str, default: str = "") -> str:
+    """Read one variable: exported process env wins, repo .env is fallback."""
+    value = os.getenv(name, "").strip()
+    if value:
+        return value
+    return _DOTENV_VALUES.get(name, default).strip()
+
+
 def record(name: str, ok: bool, detail: str = "") -> None:
     RESULTS.append((name, ok, detail))
 
 
+def _http_status_code(exc: BaseException) -> int | None:
+    """Walk the exception chain for an HTTP status without touching payloads."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        response = getattr(current, "response", None)
+        status = getattr(response, "status_code", None)
+        if isinstance(status, int):
+            return status
+        current = current.__cause__
+    return None
+
+
+def _elevenlabs_detail(exc: Exception) -> str:
+    """Classify ElevenLabs failures without exposing secrets.
+
+    HTTP 402 means the configured voice is not available to the current
+    account/API tier (e.g. a library voice on a free account) — an account
+    issue, not a missing key or provider bug.
+    """
+    if _http_status_code(exc) == 402:
+        return (
+            "ElevenLabs: configured voice is not available to the current "
+            "account/API tier"
+        )
+    return f"{type(exc).__name__}"
+
+
 def need(*names: str) -> dict[str, str] | None:
-    values = {name: os.getenv(name, "").strip() for name in names}
+    values = {name: env_value(name) for name in names}
     missing = sorted(name for name, value in values.items() if not value)
     return None if missing else values
 
@@ -111,8 +169,8 @@ async def check_deepgram() -> None:
         return
     provider = DeepgramSTTProvider(
         api_key=env["DEEPGRAM_API_KEY"],
-        model=os.getenv("DEEPGRAM_MODEL", "nova-2").strip() or "nova-2",
-        default_language=os.getenv("DEEPGRAM_LANGUAGE", "en").strip() or "en",
+        model=env_value("DEEPGRAM_MODEL", "nova-2") or "nova-2",
+        default_language=env_value("DEEPGRAM_LANGUAGE", "en") or "en",
     )
     try:
         result = await provider.transcribe(
@@ -144,7 +202,7 @@ async def check_elevenlabs() -> None:
     try:
         result = await provider.synthesize(text="Hello from the Call-E smoke test.")
     except Exception as exc:  # noqa: BLE001 - report, don't crash
-        record("ElevenLabs synthesis", False, f"{type(exc).__name__}")
+        record("ElevenLabs synthesis", False, _elevenlabs_detail(exc))
         return
     finally:
         await provider.close()
@@ -179,8 +237,8 @@ def check_rabbitmq() -> None:
 
 
 def check_asterisk() -> None:
-    user = os.getenv("ASTERISK_USERNAME", "").strip()
-    password = os.getenv("ASTERISK_PASSWORD", "").strip()
+    user = env_value("ASTERISK_USERNAME")
+    password = env_value("ASTERISK_PASSWORD")
     if not user or not password:
         record("Asterisk connectivity", False, "ASTERISK_USERNAME/PASSWORD missing")
         return

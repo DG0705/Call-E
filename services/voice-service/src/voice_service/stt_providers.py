@@ -145,13 +145,14 @@ def _stt_payload(audio: AudioChunk) -> tuple[str, int, str]:
 
     The voice engine's internal representation is 16-bit PCM. If the chunk is
     already WAV we pass it through verbatim; otherwise we describe the raw
-    little-endian linear PCM so the provider decodes it correctly.
+    little-endian linear PCM with Deepgram's `linear16` encoding value so the
+    provider decodes it correctly.
     """
     if audio.format == "wav":
         return "", audio.sample_rate, "audio/wav"
     if audio.format == "ulaw":
         return "mulaw", audio.sample_rate, "audio/basic"
-    return "slinear16", audio.sample_rate, "audio/pcm"
+    return "linear16", audio.sample_rate, "audio/pcm"
 
 
 def _as_dict(payload: object) -> dict[str, Any]:

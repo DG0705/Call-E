@@ -31,6 +31,7 @@ class RtpMediaIngress:
 
     _frames: dict[str, deque[AudioChunk]] = field(default_factory=dict)
     _listeners: dict[str, asyncio.DatagramTransport] = field(default_factory=dict)
+    _remote_addrs: dict[str, tuple[str, int]] = field(default_factory=dict)
 
     def ingest(self, channel_id: str, datagram: bytes) -> AudioChunk | None:
         """Parse one RTP datagram and queue its decoded PCM frame.
@@ -61,9 +62,24 @@ class RtpMediaIngress:
     def release(self, channel_id: str) -> None:
         """Drop queued frames and close the listener for a finished call."""
         self._frames.pop(channel_id, None)
+        self._remote_addrs.pop(channel_id, None)
         listener = self._listeners.pop(channel_id, None)
         if listener is not None:
             listener.close()
+
+    def note_remote_addr(self, channel_id: str, addr: object) -> None:
+        """Record the UDP source of inbound RTP for symmetric egress."""
+        if (
+            isinstance(addr, tuple)
+            and len(addr) >= 2
+            and isinstance(addr[0], str)
+            and isinstance(addr[1], int)
+        ):
+            self._remote_addrs[channel_id] = (addr[0], addr[1])
+
+    def remote_addr(self, channel_id: str) -> tuple[str, int] | None:
+        """Return the learned Asterisk RTP source address, if any."""
+        return self._remote_addrs.get(channel_id)
 
     async def bind(self, channel_id: str, *, host: str, port: int) -> None:
         """Listen for RTP datagrams from Asterisk for one call channel.
@@ -126,4 +142,5 @@ class _RtpDatagramProtocol(asyncio.DatagramProtocol):
         self._channel_id = channel_id
 
     def datagram_received(self, data: bytes, addr: object) -> None:
+        self._ingress.note_remote_addr(self._channel_id, addr)
         self._ingress.ingest(self._channel_id, data)

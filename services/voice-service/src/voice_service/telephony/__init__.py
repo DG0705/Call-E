@@ -5,7 +5,11 @@ Boundary composition: TelephonyProvider -> VoiceSessionManager -> STTProvider
 """
 
 from voice_service.telephony.config import (
+    LiveCallSettings,
+    RtpSettings,
     TelephonySettings,
+    load_live_call_settings,
+    load_rtp_settings,
     load_telephony_settings,
 )
 from voice_service.telephony.factory import (
@@ -28,6 +32,8 @@ __all__ = [
     "CALLS_COLLECTION",
     "CallDirection",
     "CallStatus",
+    "LiveCallSettings",
+    "RtpSettings",
     "TelephonyCall",
     "TelephonyProvider",
     "TelephonyProviderConfigurationError",
@@ -35,5 +41,7 @@ __all__ = [
     "TelephonyProviderFactory",
     "TelephonySettings",
     "TelephonyTransferUnavailableError",
+    "load_live_call_settings",
+    "load_rtp_settings",
     "load_telephony_settings",
 ]

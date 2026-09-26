@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 from voice_service.audio import AudioChunk
 from voice_service.telephony.asterisk.media import encode_ulaw
+from voice_service.telephony.asterisk.rtp_egress import RtpEgressSender
 from voice_service.telephony.asterisk.rtp_ingress import RtpMediaIngress
 from voice_service.telephony.asterisk.transport import (
     AsteriskTransport,
@@ -37,6 +38,7 @@ class AsteriskAdapter:
         password: str | None = None,
         transport: AsteriskTransport | None = None,
         media_ingress: RtpMediaIngress | None = None,
+        media_egress: RtpEgressSender | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._username = username
@@ -46,6 +48,19 @@ class AsteriskAdapter:
         )
         self._channels: dict[str, str] = {}
         self._media_ingress = media_ingress
+        self._media_egress = media_egress
+
+    @property
+    def transport(self) -> AsteriskTransport:
+        """The Asterisk communication surface this adapter drives."""
+        return self._transport
+
+    @property
+    def media_ingress(self) -> RtpMediaIngress:
+        """The inbound RTP queue shared with the live-call runner."""
+        if self._media_ingress is None:
+            self._media_ingress = RtpMediaIngress()
+        return self._media_ingress
 
     async def start_call(
         self,
@@ -144,10 +159,8 @@ class AsteriskAdapter:
         boundary. Returns ``None`` when no media path is bound or no frame
         has arrived yet.
         """
-        if self._media_ingress is None:
-            return None
         channel_id = self._channel_for(call)
-        return self._media_ingress.receive(channel_id)
+        return self.media_ingress.receive(channel_id)
 
     async def bind_media_ingress(
         self, call: TelephonyCall, *, host: str, port: int
@@ -160,9 +173,7 @@ class AsteriskAdapter:
         :meth:`receive_audio`.
         """
         channel_id = self._channel_for(call)
-        if self._media_ingress is None:
-            self._media_ingress = RtpMediaIngress()
-        await self._media_ingress.bind(channel_id, host=host, port=port)
+        await self.media_ingress.bind(channel_id, host=host, port=port)
         return f"{host}:{port}"
 
     async def start_external_media(
@@ -189,12 +200,45 @@ class AsteriskAdapter:
         *,
         request_id: str | None = None,
     ) -> None:
+        """Send synthesized audio toward the phone.
+
+        Live calls bound with :meth:`bind_egress` stream packetized RTP to
+        the Asterisk external-media address; otherwise audio falls back to
+        the ARI play-media foundation.
+        """
+        egress_remote = call.metadata.get("rtp_egress_remote")
+        if egress_remote and self._media_egress is not None:
+            host, _, port = str(egress_remote).rpartition(":")
+            try:
+                await self._media_egress.send(
+                    self._channel_for(call),
+                    (host, int(port)),
+                    audio,
+                )
+            except Exception as exc:
+                raise TelephonyProviderError(
+                    "Asterisk could not stream response audio."
+                ) from exc
+            return
         channel_id = self._channel_for(call)
         media = encode_ulaw(audio)
         try:
             await self._transport.play_media(channel_id, media)
         except Exception as exc:
             raise TelephonyProviderError("Asterisk could not play response audio.") from exc
+
+    def bind_egress(self, call: TelephonyCall, *, remote_host: str, remote_port: int) -> str:
+        """Bind RTP playout for a call to Asterisk's media address.
+
+        The remote address is learned from the first inbound RTP datagram
+        (symmetric RTP). Returns the ``"host:port"`` marker stored on the
+        call, which routes later :meth:`send_audio` calls through egress.
+        """
+        if self._media_egress is None:
+            self._media_egress = RtpEgressSender()
+        remote = f"{remote_host}:{remote_port}"
+        call.metadata["rtp_egress_remote"] = remote
+        return remote
 
     async def hangup(
         self, call: TelephonyCall, *, request_id: str | None = None
@@ -208,9 +252,10 @@ class AsteriskAdapter:
         call.status = "ended"
         call.updated_at = now
         call.ended_at = now
-        if self._media_ingress is not None:
-            self._media_ingress.release(channel_id)
-            self._channels.pop(call.call_id, None)
+        self.media_ingress.release(channel_id)
+        self._channels.pop(call.call_id, None)
+        if self._media_egress is not None:
+            self._media_egress.release(channel_id)
         return call
 
     async def transfer(
@@ -233,7 +278,9 @@ class AsteriskAdapter:
         return str(channel_id)
 
     async def close(self) -> None:
-        """Release transport resources during application shutdown."""
+        """Release transport and egress resources during application shutdown."""
+        if self._media_egress is not None:
+            self._media_egress.close()
         close_transport = getattr(self._transport, "close", None)
         if close_transport is not None:
             await close_transport()

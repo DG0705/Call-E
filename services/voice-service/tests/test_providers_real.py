@@ -112,7 +112,7 @@ def test_deepgram_provider_transcribes_with_detailed_payload() -> None:
     assert result.text == "I need ten"
     assert result.confidence == pytest.approx(0.97, abs=0.01)
     assert client.request_params is not None
-    assert client.request_params["encoding"] == "slinear16"
+    assert client.request_params["encoding"] == "linear16"
     assert client.request_params["sample_rate"] == "8000"
     assert client.request_params["language"] == "en"
     assert client.request_headers is not None
@@ -139,6 +139,25 @@ def test_deepgram_provider_raises_clean_error_on_status_failure() -> None:
 
     with pytest.raises(STTProviderError):
         run(provider.transcribe(AudioChunk(data=b"audio", format="pcm")))
+
+
+def test_deepgram_pcm_uses_linear16_encoding() -> None:
+    """Regression test: Deepgram rejects `slinear16` with 400 Invalid query string.
+
+    Raw 16-bit PCM must be described with Deepgram's `linear16` encoding
+    value (verified against the live API); the Google-style `slinear16`
+    value is rejected before any audio is processed.
+    """
+    from voice_service.stt_providers import _stt_payload
+
+    encoding, sample_rate, content_type = _stt_payload(
+        AudioChunk(data=b"\x00\x01" * 80, format="pcm", sample_rate=8000)
+    )
+
+    assert encoding == "linear16"
+    assert encoding != "slinear16"
+    assert sample_rate == 8000
+    assert content_type == "audio/pcm"
 
 
 def test_deepgram_provider_requires_api_key() -> None:
