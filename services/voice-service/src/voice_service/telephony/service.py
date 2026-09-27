@@ -176,6 +176,25 @@ class TelephonyService:
         request_id: str | None = None,
     ) -> TelephonyCall:
         """Answer a ringing call and open its voice session."""
+        call = await self.answer_channel(
+            tenant_id=tenant_id, call_id=call_id, request_id=request_id
+        )
+        return await self.start_voice_session(
+            tenant_id=tenant_id, call_id=call.call_id, request_id=request_id
+        )
+
+    async def answer_channel(
+        self,
+        *,
+        tenant_id: str,
+        call_id: str,
+        request_id: str | None = None,
+    ) -> TelephonyCall:
+        """Answer the phone channel without opening the voice session yet.
+
+        Live SIP calls answer first so RTP can flow, then open the session
+        once the media path is ready. Emits CALL_ANSWERED.
+        """
         call = await self._require_open_call(
             tenant_id=tenant_id, call_id=call_id, request_id=request_id
         )
@@ -212,6 +231,30 @@ class TelephonyService:
             request_id=request_id,
             provider=getattr(self._provider, "provider_name", "unknown"),
         )
+        await self._call_store.save(call)
+        return call
+
+    async def start_voice_session(
+        self,
+        *,
+        tenant_id: str,
+        call_id: str,
+        request_id: str | None = None,
+    ) -> TelephonyCall:
+        """Open the voice session for an answered call and play the greeting.
+
+        Requires the phone channel to be answered already (see
+        :meth:`answer_channel`). Emits CALL_STARTED.
+        """
+        call = await self._require_open_call(
+            tenant_id=tenant_id, call_id=call_id, request_id=request_id
+        )
+        if call.status != "active":
+            raise PlatformError(
+                code=_CALL_NOT_ANSWERED,
+                message="Telephony call is not answered and active.",
+                status_code=409,
+            )
         try:
             session = await self._voice_manager.create_session(
                 tenant_id=call.tenant_id,

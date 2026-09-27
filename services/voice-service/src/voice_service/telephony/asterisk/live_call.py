@@ -48,6 +48,7 @@ class _LiveCallState:
     request_id: str
     bridge_id: str | None = None
     external_channel_id: str | None = None
+    rtp_port: int | None = None
     accumulator: UtteranceAccumulator = field(default_factory=UtteranceAccumulator)
     turn_task: asyncio.Task[None] | None = None
     stop_turns: asyncio.Event | None = None
@@ -190,12 +191,20 @@ class AsteriskLiveCallRunner:
             ari_channel_id=channel_id,
         )
         try:
-            await self._establish_media(state, channel_id)
-            await self._answer(state)
+            stage = "bind_ingress"
+            await self._bind_ingress_listener(state, channel_id)
+            stage = "answer"
+            await self._answer_channel(state)
+            stage = "external_media"
+            await self._start_external_media_and_bridge(state, channel_id)
+            stage = "await_media"
+            await self._await_media_ready(state, channel_id)
+            stage = "session"
+            await self._start_session_and_greet(state)
         except Exception as exc:
             self._log_call_event(
                 "inbound_setup_failed", call, None, None, None, request_id,
-                stage="media_or_answer", error=str(type(exc).__name__),
+                stage=stage, error=str(type(exc).__name__),
             )
             await self._cleanup(channel_id, reason="setup_failed")
             return
@@ -205,14 +214,48 @@ class AsteriskLiveCallRunner:
                 self._turn_loop(channel_id), name=f"live-turns-{call.call_id}"
             )
 
-    async def _establish_media(self, state: _LiveCallState, channel_id: str) -> None:
-        """Bridge the phone leg to a fresh external-media RTP path."""
+    async def _bind_ingress_listener(
+        self, state: _LiveCallState, channel_id: str
+    ) -> None:
+        """Bind the per-call RTP listener before Asterisk can send media.
+
+        The listener must exist before the phone channel is answered: RTP
+        may start flowing as soon as the channel is up, and frames arriving
+        before any wait would otherwise be lost.
+        """
         call = state.call
         port = self._rtp_port_start + (self._port_cursor % self._rtp_port_count)
         self._port_cursor += 1
-        external_host = await self._adapter.bind_media_ingress(
+        await self._adapter.bind_media_ingress(
             call, host=self._rtp_host, port=port
         )
+        state.rtp_port = port
+        self._log_call_event(
+            "ingress_bound", call, None, None, None, state.request_id,
+            rtp_host=self._rtp_host, rtp_port=port,
+        )
+
+    async def _answer_channel(self, state: _LiveCallState) -> None:
+        """Answer the phone channel so RTP starts flowing.
+
+        Runs before any media wait: several switches only start media after
+        answer, so waiting first can deadlock the call.
+        """
+        call = state.call
+        await self._telephony.answer_channel(
+            tenant_id=call.tenant_id,
+            call_id=call.call_id,
+            request_id=state.request_id,
+        )
+        state.answered = True
+
+    async def _start_external_media_and_bridge(
+        self, state: _LiveCallState, channel_id: str
+    ) -> None:
+        """Create the external-media channel and join both legs in a bridge."""
+        call = state.call
+        assert state.rtp_port is not None
+        external_host = f"{self._rtp_host}:{state.rtp_port}"
         external_id = await self._adapter.start_external_media(
             call, external_host=external_host
         )
@@ -220,7 +263,7 @@ class AsteriskLiveCallRunner:
         self._external_channels[external_id] = channel_id
         self._log_call_event(
             "external_media_created", call, None, None, None, state.request_id,
-            external_host=f"{self._rtp_host}:{port}",
+            external_host=external_host,
         )
         bridge_id = await self._transport.create_bridge()
         await self._transport.add_channel_to_bridge(bridge_id, channel_id)
@@ -229,12 +272,31 @@ class AsteriskLiveCallRunner:
         self._log_call_event(
             "bridge_created", call, None, None, None, state.request_id,
         )
+
+    async def _await_media_ready(
+        self, state: _LiveCallState, channel_id: str
+    ) -> None:
+        """Wait for the first inbound RTP packet, then bind egress."""
+        call = state.call
         remote = await self._wait_for_media(channel_id)
         self._adapter.bind_egress(
             call, remote_host=remote[0], remote_port=remote[1]
         )
         self._log_call_event(
             "media_path_ready", call, None, None, None, state.request_id,
+        )
+
+    async def _start_session_and_greet(self, state: _LiveCallState) -> None:
+        """Open the voice session and play the greeting over ready RTP egress.
+
+        Runs only after the media path is ready, so the greeting can never
+        be attempted before Asterisk can carry it.
+        """
+        call = state.call
+        await self._telephony.start_voice_session(
+            tenant_id=call.tenant_id,
+            call_id=call.call_id,
+            request_id=state.request_id,
         )
 
     async def _wait_for_media(self, channel_id: str) -> tuple[str, int]:
@@ -250,16 +312,6 @@ class AsteriskLiveCallRunner:
         raise AsteriskTransportError(
             "No inbound RTP arrived for the call within the media timeout."
         )
-
-    async def _answer(self, state: _LiveCallState) -> None:
-        """Answer the call: ARI answer, voice session, greeting via RTP."""
-        call = state.call
-        await self._telephony.answer_call(
-            tenant_id=call.tenant_id,
-            call_id=call.call_id,
-            request_id=state.request_id,
-        )
-        state.answered = True
 
     async def _turn_loop(self, channel_id: str) -> None:
         """Accumulate utterances and run voice turns until the call ends."""

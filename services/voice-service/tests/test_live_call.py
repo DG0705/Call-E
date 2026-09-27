@@ -117,6 +117,7 @@ class FakeVoiceManager:
         self.processed: list[AudioChunk] = []
         self.ended: list[str] = []
         self.greeting = greeting
+        self.greeting_calls: list[dict[str, object]] = []
 
     async def create_session(self, **kwargs: object) -> VoiceSession:
         now = datetime.now(UTC)
@@ -133,6 +134,7 @@ class FakeVoiceManager:
         return session
 
     async def synthesize_greeting(self, **kwargs: object) -> AudioChunk | None:
+        self.greeting_calls.append(kwargs)
         return self.greeting
 
     async def process_audio_input(self, **kwargs: object) -> VoiceTurnResult:
@@ -339,10 +341,68 @@ def test_runner_first_packet_timeout_cleans_up() -> None:
 
     asyncio.run(main())
 
+    # The phone channel was answered before the media wait even though no
+    # RTP ever arrived: the timeout is about media, never about answering.
+    assert harness.transport.answered == ["phone-1"]
+    # No greeting was attempted without a ready media path.
+    assert harness.voice.greeting_calls == []
     # Call record hung up, bridge destroyed, no lingering state.
     assert harness.runner._states == {}  # type: ignore[attr-defined]
     assert harness.transport.bridges_destroyed == ["bridge-1"]
     assert harness.ingress.pending("phone-1") == 0
+
+
+def test_runner_answers_before_waiting_for_media() -> None:
+    harness = Harness()
+    observed: dict[str, object] = {}
+    runner = harness.runner
+    real_wait = runner._wait_for_media  # type: ignore[attr-defined]
+
+    async def spy_wait(channel_id: str) -> tuple[str, int]:
+        # When the media wait begins, the ARI answer must already be done.
+        observed["answered"] = list(harness.transport.answered)
+        observed["session_started"] = len(harness.voice.sessions)
+        return await real_wait(channel_id)
+
+    async def main() -> None:
+        harness.ingress.note_remote_addr("phone-1", ("127.0.0.1", 9999))
+        runner._wait_for_media = spy_wait  # type: ignore[attr-defined, method-assign]
+        try:
+            await runner.handle_event(stasis_start())
+        finally:
+            await runner.handle_event(hangup_event("StasisEnd", "phone-1"))
+
+    asyncio.run(main())
+
+    assert observed["answered"] == ["phone-1"]
+    assert observed["session_started"] == 0
+
+
+def test_runner_hangup_during_media_setup_cleans_up_once() -> None:
+    harness = Harness(first_packet_timeout_seconds=0.6)
+
+    async def main() -> None:
+        setup = asyncio.create_task(runner_handle())
+        await asyncio.sleep(0.1)
+        # Caller hangs up while the runner is still waiting for first RTP.
+        await harness.runner.handle_event(hangup_event("StasisEnd", "phone-1"))
+        await setup
+
+    async def runner_handle() -> None:
+        await harness.runner.handle_event(stasis_start())
+
+    asyncio.run(main())
+
+    assert harness.transport.hung_up.count("phone-1") == 1
+    assert harness.transport.hung_up.count("external-1") == 1
+    assert harness.transport.bridges_destroyed == ["bridge-1"]
+    assert harness.runner._states == {}  # type: ignore[attr-defined]
+    ended = [
+        event.name
+        for event in harness.publisher.published
+        if event.name == "call.ended.v1"
+    ]
+    assert len(ended) == 1
 
 
 def test_runner_run_one_turn_without_frames_returns_false() -> None:

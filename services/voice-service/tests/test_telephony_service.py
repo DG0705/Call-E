@@ -175,6 +175,104 @@ def test_answer_call_opens_voice_session_and_starts() -> None:
     assert started.conversation_id == "conversation-1"
 
 
+def test_answer_channel_answers_without_opening_session() -> None:
+    service, publisher = build_service()
+    call = run(
+        service.create_inbound_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            caller_number="+15550001",
+            destination_number="+15550002",
+            conversation_id="conversation-1",
+            request_id="req-1",
+        )
+    )
+
+    call = run(
+        service.answer_channel(
+            tenant_id="tenant-1", call_id=call.call_id, request_id="req-1"
+        )
+    )
+
+    assert call.status == "active"
+    assert "session_id" not in call.metadata
+    assert [event.name for event in publisher.published] == [
+        events.CALL_CREATED,
+        events.CALL_RINGING,
+        events.CALL_ANSWERED,
+    ]
+
+
+def test_start_voice_session_requires_answered_call() -> None:
+    service, _ = build_service()
+    call = run(
+        service.create_inbound_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            caller_number="+15550001",
+            destination_number="+15550002",
+            conversation_id="conversation-1",
+        )
+    )
+
+    with pytest.raises(PlatformError) as excinfo:
+        run(service.start_voice_session(tenant_id="tenant-1", call_id=call.call_id))
+
+    assert excinfo.value.code == "call_not_answered"
+
+
+def test_start_voice_session_after_answer_channel_starts_call() -> None:
+    service, publisher = build_service()
+    call = run(
+        service.create_inbound_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            caller_number="+15550001",
+            destination_number="+15550002",
+            conversation_id="conversation-1",
+            request_id="req-1",
+        )
+    )
+    call = run(
+        service.answer_channel(
+            tenant_id="tenant-1", call_id=call.call_id, request_id="req-1"
+        )
+    )
+
+    call = run(
+        service.start_voice_session(
+            tenant_id="tenant-1", call_id=call.call_id, request_id="req-1"
+        )
+    )
+
+    assert call.status == "active"
+    assert call.metadata["session_id"]
+    assert [event.name for event in publisher.published] == [
+        events.CALL_CREATED,
+        events.CALL_RINGING,
+        events.CALL_ANSWERED,
+        events.CALL_STARTED,
+    ]
+
+
+def test_answer_channel_failure_marks_call_failed() -> None:
+    service, _ = build_service(provider=FailingAnswerProvider())
+    call = run(
+        service.create_inbound_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            caller_number="+15550001",
+            destination_number="+15550002",
+            conversation_id="conversation-1",
+        )
+    )
+
+    with pytest.raises(PlatformError):
+        run(service.answer_channel(tenant_id="tenant-1", call_id=call.call_id))
+
+    assert call.status == "failed"
+
+
 def test_answer_call_plays_agent_greeting() -> None:
     runtime = FakeAgentRuntimeClient()
     runtime.agent = AgentConfiguration(

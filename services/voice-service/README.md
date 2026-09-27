@@ -281,9 +281,15 @@ The development inbound route maps a single extension to the Kaari agent:
 - Caller dials extension **1000** (or the value of `KAARI_DEV_EXTENSION`)
 - Asterisk hands the channel to the `call-e` ARI application (`Stasis(call-e)`)
 - The live-call runner receives `StasisStart`, resolves the extension to the
-  Kaari tenant/agent, creates the call record, bridges the phone leg to a
-  fresh external-media channel, and answers
-- Voice service creates a voice session and plays the agent greeting over RTP:
+  Kaari tenant/agent, and creates the call record
+- The runner binds the per-call RTP listener first (so no early media is
+  lost), then **answers the phone channel** — several switches only start
+  media after answer, so the runner never waits for RTP on an unanswered call
+- The runner creates the external-media channel, joins both legs in an ARI
+  bridge, waits for the first inbound RTP packet to learn Asterisk's media
+  address, and binds RTP egress
+- Voice service creates a voice session and plays the agent greeting over the
+  ready RTP path (the greeting is never attempted before media is ready):
   > "Hello, thank you for calling Kaari Planters. I would be happy to help you find the right planters. What are you looking for today?"
 - Each caller utterance (framed by trailing silence) runs STT → agent → TTS,
   and the reply is streamed back as RTP until the caller hangs up
@@ -400,12 +406,13 @@ Logs to watch (structured JSON, IDs only — never audio, transcripts, or secret
 - `agent_service.runtime.events` — `agent_turn_started`, `tool_called`,
   `tool_completed`, `response_generated`
 
-Expected log sequence for one answered live call:
+Expected log sequence for one answered live call (answer precedes any media
+wait, and the greeting follows media readiness):
 
 ```
 ari_stream_connected → stasis_start → call_created → call_ringing →
-external_media_created → bridge_created → media_path_ready →
-call_answered → call_started (+ greeting audio_synthesized) →
+call_answered (+ media_channel_established) → external_media_created →
+bridge_created → media_path_ready → call_started (+ greeting audio_synthesized) →
 [audio_packet_received → turn_started → transcription_completed →
  agent_turn_started → (tool_called → tool_completed)* →
  response_generated → tts_started → synthesis_completed → audio_returned]…
