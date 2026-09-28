@@ -8,6 +8,8 @@ Providers are configured entirely with environment variables and never log
 their credentials.
 """
 
+from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager
 from typing import Any, Protocol
 
 import httpx
@@ -28,6 +30,18 @@ class TTSClient(Protocol):
         params: dict[str, str],
         headers: dict[str, str],
     ) -> httpx.Response: ...
+
+    def stream(
+        self,
+        method: str,
+        url: str,
+        *,
+        json: dict[str, Any],
+        params: dict[str, str],
+        headers: dict[str, str],
+    ) -> AbstractAsyncContextManager[httpx.Response]:
+        """Open a streaming HTTP request (async context manager)."""
+        ...
 
 
 class ElevenLabsTTSProvider:
@@ -139,6 +153,71 @@ class ElevenLabsTTSProvider:
             },
         )
 
+    def synthesize_stream(
+        self,
+        *,
+        text: str,
+        voice_id: str | None = None,
+        language: str = "en",
+    ) -> AsyncIterator[AudioChunk]:
+        """Yield raw 8 kHz PCM fragments as the ElevenLabs HTTP stream arrives.
+
+        Uses the provider's streaming endpoint (streaming latency
+        optimization enabled) so the first audio is available long before the
+        full response completes. Fragments have arbitrary sizes; callers
+        accumulate them into complete 20 ms frames. The complete response is
+        never buffered: chunks flow straight from the HTTP stream to the
+        caller. Errors before any audio raise like the buffered path; errors
+        after audio started also raise so the caller can keep partial playout
+        and log the interruption.
+        """
+        return self._stream_audio(text=text, voice_id=voice_id, language=language)
+
+    async def _stream_audio(
+        self,
+        *,
+        text: str,
+        voice_id: str | None,
+        language: str,
+    ) -> AsyncIterator[AudioChunk]:
+        voice = voice_id or self._voice_id
+        if not voice:
+            raise TTSProviderError(
+                "No ElevenLabs voice id configured. Set ELEVENLABS_VOICE_ID or "
+                "supply voice_id."
+            )
+        try:
+            async with self._client.stream(
+                "POST",
+                f"{self._BASE_URL}/{voice}",
+                json={
+                    "text": text,
+                    "model_id": self._model_id,
+                    "language_code": language,
+                },
+                params={
+                    "output_format": "pcm_8000",
+                    "optimize_streaming_latency": "4",
+                },
+                headers={
+                    "xi-api-key": self._api_key,
+                    "Content-Type": "application/json",
+                    "Accept": "audio/pcm",
+                },
+            ) as response:
+                response.raise_for_status()
+                async for blob in response.aiter_bytes():
+                    if blob:
+                        yield AudioChunk(
+                            data=bytes(blob), format="pcm", sample_rate=8000
+                        )
+        except httpx.HTTPStatusError as exc:
+            raise TTSProviderError(
+                f"ElevenLabs synthesis failed with status {exc.response.status_code}."
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise TTSProviderError("ElevenLabs synthesis request failed.") from exc
+
     async def close(self) -> None:
         """Release the HTTP client when this provider owns it."""
         close_client = getattr(self._client, "close", None)
@@ -166,6 +245,19 @@ class _HttpTTSClient:
     ) -> httpx.Response:
         return await self._client.post(
             url, json=json, params=params, headers=headers
+        )
+
+    def stream(
+        self,
+        method: str,
+        url: str,
+        *,
+        json: dict[str, Any],
+        params: dict[str, str],
+        headers: dict[str, str],
+    ) -> AbstractAsyncContextManager[httpx.Response]:
+        return self._client.stream(
+            method, url, json=json, params=params, headers=headers
         )
 
     async def close(self) -> None:

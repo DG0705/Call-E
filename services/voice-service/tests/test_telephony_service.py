@@ -72,11 +72,12 @@ def build_service(
     provider: TelephonyProvider | None = None,
     runtime: object | None = None,
     publisher: RecordingEventPublisher | None = None,
+    tts: object | None = None,
 ) -> tuple[TelephonyService, RecordingEventPublisher]:
     publisher = publisher or RecordingEventPublisher()
     manager = VoiceSessionManager(
         stt_provider=MockSTTProvider(),
-        tts_provider=MockTTSProvider(),
+        tts_provider=tts or MockTTSProvider(),  # type: ignore[arg-type]
         agent_runtime=runtime or FakeAgentRuntimeClient(),  # type: ignore[arg-type]
         session_store=InMemoryVoiceSessionStore(),
     )
@@ -341,6 +342,66 @@ def test_process_audio_runs_turn_and_sends_audio_back() -> None:
     assert result.transcript == "Mock transcription of customer audio."
     assert result.response_text == "Reply to: Mock transcription of customer audio."
     assert provider.sent_audio(call.call_id)  # type: ignore[attr-defined]
+
+
+def test_process_audio_streams_chunky_tts_through_frame_sink(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from collections.abc import AsyncIterator
+
+    from voice_service.tts import TTSResult
+
+    class ChunkyServiceTTSProvider:
+        provider_name = "chunky"
+
+        async def synthesize(self, **kwargs: object) -> TTSResult:
+            return TTSResult(
+                audio=AudioChunk(data=b"\x01" * 640, format="pcm"),
+                provider=self.provider_name,
+                content_type="audio/pcm",
+            )
+
+        def synthesize_stream(self, **kwargs: object) -> AsyncIterator[AudioChunk]:
+            return self._generate()
+
+        async def _generate(self) -> AsyncIterator[AudioChunk]:
+            yield AudioChunk(data=b"\x01" * 100, format="pcm")
+            yield AudioChunk(data=b"\x02" * 540, format="pcm")
+
+    caplog.set_level(logging.INFO, logger="voice_service.telephony.events")
+    service, _ = build_service(tts=ChunkyServiceTTSProvider())
+    call = run(
+        service.create_inbound_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            caller_number="+15550001",
+            destination_number="+15550002",
+            conversation_id="conversation-1",
+        )
+    )
+    call = run(service.answer_call(tenant_id="tenant-1", call_id=call.call_id))
+    provider = service._provider  # type: ignore[attr-defined]
+
+    result = run(
+        service.process_audio(
+            tenant_id="tenant-1",
+            call_id=call.call_id,
+            audio=AudioChunk(data=b"customer-audio", format="pcm"),
+        )
+    )
+
+    assert result.audio.data == b""
+    assert result.audio_packets_streamed == 2
+    sent = provider.sent_audio(call.call_id)  # type: ignore[attr-defined]
+    assert [len(chunk.data) for chunk in sent] == [320, 320]
+    returned = [
+        record.telephony_event
+        for record in caplog.records
+        if getattr(record, "telephony_event", None) is not None
+        and record.telephony_event["event"] == "audio_returned"
+    ]
+    assert len(returned) == 1
+    assert returned[0]["rtp_packets"] == 2
 
 
 def test_drain_audio_consumes_queued_chunks() -> None:

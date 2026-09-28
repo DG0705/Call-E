@@ -77,6 +77,88 @@ class FailingTTSClient:
         return _fake_response(status=401, json={"error": "unauthorized"})
 
 
+class _GuardedStreamResponse:
+    """Fake streaming HTTP response that forbids full-response buffering."""
+
+    def __init__(
+        self,
+        blobs: list[bytes],
+        *,
+        status: int = 200,
+        fail_after: int | None = None,
+    ) -> None:
+        self._blobs = blobs
+        self._status = status
+        self._fail_after = fail_after
+        self.pulls = 0
+
+    @property
+    def content(self) -> bytes:
+        raise AssertionError("streaming path must not buffer response.content")
+
+    def raise_for_status(self) -> None:
+        if self._status != 200:
+            request = httpx.Request("POST", "https://example.invalid/")
+            raise httpx.HTTPStatusError(
+                "stream failed",
+                request=request,
+                response=httpx.Response(self._status, request=request),
+            )
+
+    async def aiter_bytes(self) -> object:
+        for index, blob in enumerate(self._blobs):
+            self.pulls += 1
+            if self._fail_after is not None and index >= self._fail_after:
+                raise httpx.HTTPError("stream interrupted")
+            yield blob
+
+
+class StreamingTTSClient:
+    """Fake HTTP client serving ElevenLabs audio as a controlled stream."""
+
+    def __init__(
+        self,
+        blobs: list[bytes],
+        *,
+        status: int = 200,
+        fail_after: int | None = None,
+    ) -> None:
+        self._blobs = blobs
+        self._status = status
+        self._fail_after = fail_after
+        self.request_url: str | None = None
+        self.request_json: dict[str, object] | None = None
+        self.request_params: dict[str, str] | None = None
+        self.request_headers: dict[str, str] | None = None
+        self.closed = False
+        self.response: _GuardedStreamResponse | None = None
+
+    def stream(
+        self, method: str, url: str, *, json: dict[str, object], params: dict[str, str], headers: dict[str, str]
+    ) -> object:
+        assert method == "POST"
+        self.request_url = url
+        self.request_json = json
+        self.request_params = params
+        self.request_headers = headers
+        client = self
+
+        class _Context:
+            async def __aenter__(self) -> _GuardedStreamResponse:
+                client.response = _GuardedStreamResponse(
+                    client._blobs,
+                    status=client._status,
+                    fail_after=client._fail_after,
+                )
+                return client.response
+
+            async def __aexit__(self, *args: object) -> bool:
+                client.closed = True
+                return False
+
+        return _Context()
+
+
 # --- Deepgram STT ---
 
 
@@ -254,3 +336,110 @@ def test_elevenlabs_provider_raises_clean_error_on_status_failure() -> None:
 def test_elevenlabs_provider_requires_api_key() -> None:
     with pytest.raises(ValueError):
         ElevenLabsTTSProvider(api_key="")
+
+
+# --- ElevenLabs streaming TTS ---
+
+
+def test_elevenlabs_stream_yields_first_chunk_before_full_response() -> None:
+    blobs = [b"\x00\x01" * 50, b"\x02\x03" * 250, b"\x04\x05" * 200]
+    client = StreamingTTSClient(blobs)
+    provider = ElevenLabsTTSProvider(
+        api_key="secret", voice_id="voice-1", client=client  # type: ignore[arg-type]
+    )
+
+    async def main() -> tuple[list[AudioChunk], int]:
+        stream = provider.synthesize_stream(text="Hello there")
+        first = await stream.__anext__()
+        pulls_after_first = client.response.pulls if client.response else -1
+        rest = [chunk async for chunk in stream]
+        return [first, *rest], pulls_after_first
+
+    chunks, pulls_after_first = run(main())  # type: ignore[misc]
+
+    assert pulls_after_first == 1
+    assert [chunk.data for chunk in chunks] == blobs
+    assert all(chunk.format == "pcm" and chunk.sample_rate == 8000 for chunk in chunks)
+    assert b"".join(chunk.data for chunk in chunks) == b"".join(blobs)
+
+
+def test_elevenlabs_stream_uses_streaming_request_parameters() -> None:
+    client = StreamingTTSClient([b"\x00\x01" * 160])
+    provider = ElevenLabsTTSProvider(
+        api_key="secret", voice_id="voice-1", client=client  # type: ignore[arg-type]
+    )
+
+    async def main() -> list[AudioChunk]:
+        return [chunk async for chunk in provider.synthesize_stream(text="Hi")]
+
+    chunks = run(main())  # type: ignore[misc]
+
+    assert len(chunks) == 1
+    assert client.request_url is not None and client.request_url.endswith("/voice-1")
+    assert client.request_json is not None and client.request_json["text"] == "Hi"
+    assert client.request_params is not None
+    assert client.request_params["output_format"] == "pcm_8000"
+    assert client.request_params["optimize_streaming_latency"] == "4"
+    assert client.request_headers is not None
+    assert client.request_headers["xi-api-key"] == "secret"
+    assert client.closed is True
+
+
+def test_elevenlabs_stream_skips_empty_blobs() -> None:
+    client = StreamingTTSClient([b"", b"\x00\x01" * 160, b""])
+    provider = ElevenLabsTTSProvider(
+        api_key="secret", voice_id="voice-1", client=client  # type: ignore[arg-type]
+    )
+
+    async def main() -> list[AudioChunk]:
+        return [chunk async for chunk in provider.synthesize_stream(text="Hi")]
+
+    chunks = run(main())  # type: ignore[misc]
+
+    assert [chunk.data for chunk in chunks] == [b"\x00\x01" * 160]
+
+
+def test_elevenlabs_stream_raises_before_first_audio_on_status_failure() -> None:
+    client = StreamingTTSClient([], status=429)
+    provider = ElevenLabsTTSProvider(
+        api_key="secret", voice_id="voice-1", client=client  # type: ignore[arg-type]
+    )
+
+    async def main() -> list[AudioChunk]:
+        return [chunk async for chunk in provider.synthesize_stream(text="Hi")]
+
+    with pytest.raises(TTSProviderError):
+        run(main())
+
+
+def test_elevenlabs_stream_raises_after_audio_started() -> None:
+    blobs = [b"\x00\x01" * 160, b"\x02\x03" * 160, b"\x04\x05" * 160]
+    client = StreamingTTSClient(blobs, fail_after=1)
+    provider = ElevenLabsTTSProvider(
+        api_key="secret", voice_id="voice-1", client=client  # type: ignore[arg-type]
+    )
+
+    async def main() -> list[AudioChunk]:
+        received: list[AudioChunk] = []
+        with pytest.raises(TTSProviderError):
+            async for chunk in provider.synthesize_stream(text="Hi"):
+                received.append(chunk)
+        return received
+
+    received = run(main())  # type: ignore[misc]
+
+    assert [chunk.data for chunk in received] == blobs[:1]
+
+
+def test_elevenlabs_stream_requires_voice() -> None:
+    client = StreamingTTSClient([b"\x00\x01" * 10])
+    provider = ElevenLabsTTSProvider(
+        api_key="secret", voice_id=None, client=client  # type: ignore[arg-type]
+    )
+
+    async def main() -> list[AudioChunk]:
+        return [chunk async for chunk in provider.synthesize_stream(text="Hi")]
+
+    with pytest.raises(TTSProviderError):
+        run(main())
+    assert client.request_url is None

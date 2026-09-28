@@ -1,7 +1,10 @@
 """The application flow that orchestrates one real-time voice turn."""
 
+import asyncio
 import logging
+import time
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 from pydantic import BaseModel
@@ -9,7 +12,7 @@ from pydantic import BaseModel
 from call_e_shared.exceptions import PlatformError
 
 from voice_service.agent_runtime import AgentRuntimeClient
-from voice_service.audio import AudioChunk, decode_wav
+from voice_service.audio import AudioChunk, PcmFrameAccumulator, decode_wav
 from voice_service.models import AudioFormat, VoiceSession
 from voice_service.observability import VOICE_EVENT_LOGGER, log_voice_event
 from voice_service.session_store import VoiceSessionStore
@@ -52,6 +55,7 @@ class VoiceTurnResult(BaseModel):
     tts_provider: str
     tts_voice_id: str | None = None
     content_type: str
+    audio_packets_streamed: int = 0
 
 
 class VoiceSessionManager:
@@ -215,8 +219,15 @@ class VoiceSessionManager:
         session_id: str,
         audio: AudioChunk,
         request_id: str | None = None,
+        audio_sink: Callable[[AudioChunk], Awaitable[None]] | None = None,
     ) -> VoiceTurnResult:
-        """Run the audio-to-speech pipeline for one user utterance."""
+        """Run the audio-to-speech pipeline for one user utterance.
+
+        When ``audio_sink`` is provided, synthesized speech streams through it
+        as complete 20 ms PCM frames while the TTS response is still arriving
+        (first audio plays before synthesis completes); otherwise the full
+        utterance audio is buffered and returned classically.
+        """
         session = await self._require_session(tenant_id=tenant_id, session_id=session_id)
         if session.status == "ended":
             raise PlatformError(
@@ -252,6 +263,10 @@ class VoiceSessionManager:
             request_id=request_id,
             input_format=audio.format,
         )
+        # Monotonic stage markers for latency diagnostics: turn_started is
+        # emitted when the finalized utterance enters the pipeline, so the
+        # deltas below measure speech_end -> transcription -> runtime -> TTS.
+        turn_start = time.monotonic()
         try:
             transcription = await self._stt_provider.transcribe(audio)
         except Exception:
@@ -273,6 +288,8 @@ class VoiceSessionManager:
                 request_id=request_id,
                 error_code=_STT_ERROR_CODE,
             )
+        stt_done = time.monotonic()
+        stt_elapsed_ms = int((stt_done - turn_start) * 1000)
         log_voice_event(
             self._logger,
             "transcription_completed",
@@ -282,6 +299,7 @@ class VoiceSessionManager:
             conversation_id=session.conversation_id,
             request_id=request_id,
             provider=transcription.provider,
+            stt_elapsed_ms=stt_elapsed_ms,
         )
         if not transcription.text:
             await self._mark(session, "active")
@@ -316,6 +334,8 @@ class VoiceSessionManager:
                 request_id=request_id,
                 error_code=_RUNTIME_ERROR_CODE,
             )
+        runtime_done = time.monotonic()
+        runtime_elapsed_ms = int((runtime_done - stt_done) * 1000)
         log_voice_event(
             self._logger,
             "runtime_response_generated",
@@ -326,7 +346,9 @@ class VoiceSessionManager:
             request_id=request_id,
             provider=runtime_result.provider_name,
             model=runtime_result.model_name,
+            runtime_elapsed_ms=runtime_elapsed_ms,
         )
+        tts_start = time.monotonic()
         log_voice_event(
             self._logger,
             "tts_started",
@@ -338,6 +360,96 @@ class VoiceSessionManager:
             output_format=session.output_audio_format,
             text_chars=len(runtime_result.text),
         )
+        stream_stats: dict[str, object] | None = None
+        if audio_sink is not None:
+            try:
+                stream_stats = await self._stream_tts_to_sink(
+                    session=session,
+                    text=runtime_result.text,
+                    audio_sink=audio_sink,
+                    request_id=request_id,
+                    tts_start=tts_start,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Sink/RTP failure before any playout: fall through to the
+                # buffered path so the classic send surfaces the same error.
+                stream_stats = None
+            if (
+                stream_stats is not None
+                and not stream_stats["completed"]
+                and stream_stats["frames"] == 0
+            ):
+                # Provider failure (or empty stream) before first audio:
+                # retry once via the buffered path below.
+                stream_stats = None
+        if stream_stats is not None and stream_stats["frames"] > 0:
+            frames_sent = int(stream_stats["frames"])
+            if not stream_stats["completed"]:
+                log_voice_event(
+                    self._logger,
+                    "tts_stream_interrupted",
+                    tenant_id=tenant_id,
+                    agent_id=session.agent_id,
+                    session_id=session.session_id,
+                    conversation_id=session.conversation_id,
+                    request_id=request_id,
+                    frames_sent=frames_sent,
+                    error=str(stream_stats.get("error") or "unknown"),
+                )
+            synth_done = time.monotonic()
+            tts_elapsed_ms = int((synth_done - runtime_done) * 1000)
+            turn_elapsed_ms = int((synth_done - turn_start) * 1000)
+            log_voice_event(
+                self._logger,
+                "synthesis_completed",
+                tenant_id=tenant_id,
+                agent_id=session.agent_id,
+                session_id=session.session_id,
+                conversation_id=session.conversation_id,
+                request_id=request_id,
+                provider=getattr(self._tts_provider, "provider_name", "unknown"),
+                tts_elapsed_ms=tts_elapsed_ms,
+                streamed=True,
+            )
+            log_voice_event(
+                self._logger,
+                "turn_completed",
+                tenant_id=tenant_id,
+                agent_id=session.agent_id,
+                session_id=session.session_id,
+                conversation_id=session.conversation_id,
+                request_id=request_id,
+                stt_elapsed_ms=stt_elapsed_ms,
+                runtime_elapsed_ms=runtime_elapsed_ms,
+                tts_elapsed_ms=tts_elapsed_ms,
+                turn_elapsed_ms=turn_elapsed_ms,
+                response_chars=len(runtime_result.text),
+                audio_bytes=int(stream_stats["bytes"]),
+                audio_packets_streamed=frames_sent,
+                streamed=True,
+            )
+            await self._mark(session, "active")
+            return VoiceTurnResult(
+                session_id=session.session_id,
+                tenant_id=session.tenant_id,
+                agent_id=session.agent_id,
+                conversation_id=session.conversation_id,
+                transcript=transcription.text,
+                response_text=runtime_result.text,
+                audio=AudioChunk(data=b"", format="pcm"),
+                stt_provider=transcription.provider,
+                stt_confidence=transcription.confidence,
+                runtime_provider=runtime_result.provider_name,
+                runtime_model=runtime_result.model_name,
+                tts_provider=getattr(
+                    self._tts_provider, "provider_name", "unknown"
+                ),
+                tts_voice_id=None,
+                content_type="audio/pcm",
+                audio_packets_streamed=frames_sent,
+            )
         try:
             synthesis = await self._tts_provider.synthesize(
                 text=runtime_result.text,
@@ -363,6 +475,9 @@ class VoiceSessionManager:
                 message="Text-to-speech synthesis failed.",
                 status_code=502,
             ) from exc
+        synth_done = time.monotonic()
+        tts_elapsed_ms = int((synth_done - runtime_done) * 1000)
+        turn_elapsed_ms = int((synth_done - turn_start) * 1000)
         log_voice_event(
             self._logger,
             "synthesis_completed",
@@ -373,6 +488,22 @@ class VoiceSessionManager:
             request_id=request_id,
             provider=synthesis.provider,
             content_type=synthesis.content_type,
+            tts_elapsed_ms=tts_elapsed_ms,
+        )
+        log_voice_event(
+            self._logger,
+            "turn_completed",
+            tenant_id=tenant_id,
+            agent_id=session.agent_id,
+            session_id=session.session_id,
+            conversation_id=session.conversation_id,
+            request_id=request_id,
+            stt_elapsed_ms=stt_elapsed_ms,
+            runtime_elapsed_ms=runtime_elapsed_ms,
+            tts_elapsed_ms=tts_elapsed_ms,
+            turn_elapsed_ms=turn_elapsed_ms,
+            response_chars=len(runtime_result.text),
+            audio_bytes=len(synthesis.audio.data),
         )
         await self._mark(session, "active")
         return VoiceTurnResult(
@@ -391,6 +522,114 @@ class VoiceSessionManager:
             tts_voice_id=synthesis.voice_id,
             content_type=synthesis.content_type,
         )
+
+    async def _stream_tts_to_sink(
+        self,
+        *,
+        session: VoiceSession,
+        text: str,
+        audio_sink: Callable[[AudioChunk], Awaitable[None]],
+        request_id: str | None,
+        tts_start: float,
+    ) -> dict[str, object]:
+        """Consume streaming TTS into 20 ms frames delivered to ``audio_sink``.
+
+        Returns stage stats (frames/bytes/chunks/first-chunk/completed).
+        Provider errors are captured as ``completed=False`` so the caller can
+        fall back or keep partial playout; sink (RTP send) errors propagate so
+        send failures surface through the classic path. Cancellation closes
+        the provider stream and re-raises without leaking the task. Only the
+        partial-frame remainder (<320 bytes) plus in-flight HTTP buffers are
+        ever held — the sink's paced consumption backpressures the stream, so
+        no unbounded queue can grow.
+        """
+        stats: dict[str, object] = {
+            "frames": 0,
+            "bytes": 0,
+            "chunks": 0,
+            "first_chunk_ms": None,
+            "completed": False,
+            "error": None,
+        }
+        buffer = PcmFrameAccumulator()
+        log_voice_event(
+            self._logger,
+            "tts_stream_started",
+            tenant_id=session.tenant_id,
+            agent_id=session.agent_id,
+            session_id=session.session_id,
+            conversation_id=session.conversation_id,
+            request_id=request_id,
+            text_chars=len(text),
+        )
+        stream = self._tts_provider.synthesize_stream(
+            text=text, voice_id=session.voice_id, language=session.language
+        )
+        try:
+            async for fragment in stream:
+                data = fragment.data
+                if not data:
+                    continue
+                stats["chunks"] = int(stats["chunks"]) + 1
+                stats["bytes"] = int(stats["bytes"]) + len(data)
+                if stats["first_chunk_ms"] is None:
+                    first_ms = int((time.monotonic() - tts_start) * 1000)
+                    stats["first_chunk_ms"] = first_ms
+                    log_voice_event(
+                        self._logger,
+                        "tts_first_audio_chunk",
+                        tenant_id=session.tenant_id,
+                        agent_id=session.agent_id,
+                        session_id=session.session_id,
+                        conversation_id=session.conversation_id,
+                        request_id=request_id,
+                        first_chunk_elapsed_ms=first_ms,
+                        chunk_bytes=len(data),
+                    )
+                for frame in buffer.append(data):
+                    try:
+                        await audio_sink(frame)
+                    except Exception:
+                        stats["sink_error"] = True
+                        raise
+                    stats["frames"] = int(stats["frames"]) + 1
+            final = buffer.flush()
+            if final is not None:
+                try:
+                    await audio_sink(final)
+                except Exception:
+                    stats["sink_error"] = True
+                    raise
+                stats["frames"] = int(stats["frames"]) + 1
+            stats["completed"] = True
+        except asyncio.CancelledError:
+            aclose = getattr(stream, "aclose", None)
+            if aclose is not None:
+                try:
+                    await aclose()
+                except Exception:
+                    pass
+            raise
+        except Exception as exc:
+            if stats.get("sink_error"):
+                raise
+            stats["error"] = type(exc).__name__
+        total_ms = int((time.monotonic() - tts_start) * 1000)
+        log_voice_event(
+            self._logger,
+            "tts_audio_stream_completed",
+            tenant_id=session.tenant_id,
+            agent_id=session.agent_id,
+            session_id=session.session_id,
+            conversation_id=session.conversation_id,
+            request_id=request_id,
+            tts_total_elapsed_ms=total_ms,
+            tts_stream_chunks=stats["chunks"],
+            tts_audio_bytes=stats["bytes"],
+            frames_sent=stats["frames"],
+            completed=stats["completed"],
+        )
+        return stats
 
     async def _fallback_turn(
         self,

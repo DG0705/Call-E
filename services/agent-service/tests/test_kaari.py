@@ -1506,6 +1506,61 @@ def test_agent_system_prompt_pricing_tiers() -> None:
     assert "never invent" in prompt
 
 
+# ============================================================
+# 6. SPOKEN CONVERSATION RULES
+# ============================================================
+
+
+def test_agent_system_prompt_short_spoken_responses() -> None:
+    agent = create_kaari_agent()
+    prompt = agent.system_prompt.lower()
+    assert "1-3 short sentences" in prompt
+    assert "naturalness outranks fixed length" in prompt
+
+
+def test_agent_system_prompt_one_question_per_turn() -> None:
+    agent = create_kaari_agent()
+    prompt = agent.system_prompt.lower()
+    assert "exactly one natural question" in prompt
+    assert "never ask several questions in one turn" in prompt
+
+
+def test_agent_system_prompt_no_option_lists() -> None:
+    agent = create_kaari_agent()
+    prompt = agent.system_prompt.lower()
+    assert "never present a numbered list of options" in prompt
+    assert "at most one or two relevant products" in prompt
+    assert "do not read catalog data aloud" in prompt
+
+
+def test_agent_system_prompt_progressive_discovery() -> None:
+    agent = create_kaari_agent()
+    prompt = agent.system_prompt.lower()
+    assert "progressive discovery" in prompt
+    assert "never collect everything at once" in prompt
+    assert "rigid quantity-size-colour-style-budget checklist" in prompt
+
+
+def test_agent_system_prompt_wait_for_customer() -> None:
+    agent = create_kaari_agent()
+    prompt = agent.system_prompt.lower()
+    assert "stop speaking and wait" in prompt
+    assert "answer it and stop" in prompt
+
+
+def test_agent_system_prompt_remembers_provided_information() -> None:
+    agent = create_kaari_agent()
+    prompt = agent.system_prompt.lower()
+    assert "never ask for information the customer already provided" in prompt
+
+
+def test_agent_system_prompt_customer_led() -> None:
+    agent = create_kaari_agent()
+    prompt = agent.system_prompt.lower()
+    assert "if the customer changes the subject, follow them" in prompt
+    assert "mention alternatives only if the customer asks" in prompt
+
+
 def test_knowledge_includes_made_to_order() -> None:
     retriever = KaariKnowledgeRetriever()
     results = run(
@@ -2354,7 +2409,10 @@ def test_kaari_mvp_smoke_test() -> None:
     assert turn1.agent_id == "kaari-sales-agent"
     assert turn1.conversation_id == "conv-smoke-1"
     assert turn1.transcript == "Mock transcription of customer audio."
-    assert turn1.audio.data  # TTS output
+    # Turn audio arrives either buffered (classic) or frame-streamed while
+    # TTS is still generating — both are valid deliveries, never mixed.
+    assert turn1.audio.data or turn1.audio_packets_streamed > 0
+    assert (turn1.audio.data == b"") == (turn1.audio_packets_streamed > 0)
     assert turn1.response_text.startswith("Mock response:")
 
     # --- Turn 2: Customer asks for pricing ---
@@ -2364,7 +2422,8 @@ def test_kaari_mvp_smoke_test() -> None:
     assert len(results) == 1
     turn2 = results[0]
     assert turn2.transcript == "Mock transcription of customer audio."
-    assert turn2.audio.data
+    assert turn2.audio.data or turn2.audio_packets_streamed > 0
+    assert (turn2.audio.data == b"") == (turn2.audio_packets_streamed > 0)
     assert turn2.response_text.startswith("Mock response:")
 
     # --- Turn 3: Customer proceeds to create lead ---
@@ -2374,7 +2433,8 @@ def test_kaari_mvp_smoke_test() -> None:
     assert len(results) == 1
     turn3 = results[0]
     assert turn3.transcript == "Mock transcription of customer audio."
-    assert turn3.audio.data
+    assert turn3.audio.data or turn3.audio_packets_streamed > 0
+    assert (turn3.audio.data == b"") == (turn3.audio_packets_streamed > 0)
     assert turn3.response_text.startswith("Mock response:")
 
     # --- Call ends gracefully ---

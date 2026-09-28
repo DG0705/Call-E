@@ -87,6 +87,7 @@ class RtpEgressSender:
     _packetizers: dict[str, RtpPacketizer] = field(default_factory=dict)
     _clock: Clock | None = None
     _sleep: Sleeper | None = None
+    _stream_deadlines: dict[str, float] = field(default_factory=dict)
 
     async def ensure_started(self) -> None:
         """Open the shared UDP socket (ephemeral local port)."""
@@ -136,6 +137,37 @@ class RtpEgressSender:
             self._transport.sendto(datagram, remote)
         return len(datagrams)
 
+    async def send_frame(
+        self, channel_id: str, remote: tuple[str, int], frame: AudioChunk
+    ) -> int:
+        """Packetize one 20 ms PCM frame and send its datagram on cadence.
+
+        Returns 1 after the datagram is sent. Each call targets the channel's
+        standing 20 ms deadline (advanced per frame from stream start), so
+        frames arriving faster than real time are paced out — never
+        firehosed — while overdue deadlines send immediately to catch up.
+        Packetization, headers, destination, and the shared socket match
+        :meth:`send`.
+        """
+        await self.ensure_started()
+        assert self._transport is not None
+        packetizer = self.register(channel_id)
+        datagrams = packetizer.packetize(frame)
+        clock = self._clock or _loop_clock
+        sleep = self._sleep or _loop_sleep
+        now = clock()
+        deadline = self._stream_deadlines.get(channel_id, now)
+        if deadline < now:
+            deadline = now
+        else:
+            delay = deadline - now
+            if delay > 0:
+                await sleep(delay)
+        self._stream_deadlines[channel_id] = deadline + _FRAME_SECONDS
+        for datagram in datagrams:
+            self._transport.sendto(datagram, remote)
+        return len(datagrams)
+
     def pending_packets(self, channel_id: str) -> RtpPacketizer | None:
         """Return per-call packetizer state, if registered."""
         return self._packetizers.get(channel_id)
@@ -143,6 +175,7 @@ class RtpEgressSender:
     def release(self, channel_id: str) -> None:
         """Drop per-call packetizer state for a finished call."""
         self._packetizers.pop(channel_id, None)
+        self._stream_deadlines.pop(channel_id, None)
 
     def close(self) -> None:
         """Close the shared UDP socket."""

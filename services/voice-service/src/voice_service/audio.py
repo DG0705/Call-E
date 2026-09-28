@@ -183,3 +183,53 @@ def decode_ulaw(
         sample_width=PCM_DEFAULT_SAMPLE_WIDTH,
         metadata={**(metadata or {}), "ulaw_decoded_from": "ulaw"},
     )
+
+
+class PcmFrameAccumulator:
+    """Accumulate streaming PCM bytes into complete 20 ms playout frames.
+
+    Streaming TTS providers yield arbitrary-sized PCM fragments; RTP needs
+    fixed 20 ms frames (160 samples of 16-bit mono PCM). Bytes are appended
+    and whole frames are extracted; a trailing partial frame is retained
+    until more bytes arrive, and ``flush`` pads the final remainder with
+    digital silence so no audio is lost at stream end.
+    """
+
+    def __init__(self, *, sample_rate: int = PCM_DEFAULT_SAMPLE_RATE) -> None:
+        self._frame_bytes = max(2, sample_rate // 50 * 2)
+        self._sample_rate = sample_rate
+        self._pending = bytearray()
+
+    def append(self, data: bytes) -> list[AudioChunk]:
+        """Append PCM bytes and return every newly completed 20 ms frame."""
+        self._pending.extend(data)
+        frames: list[AudioChunk] = []
+        while len(self._pending) >= self._frame_bytes:
+            frame = bytes(self._pending[: self._frame_bytes])
+            del self._pending[: self._frame_bytes]
+            frames.append(
+                AudioChunk(
+                    data=frame,
+                    format="pcm",
+                    sample_rate=self._sample_rate,
+                    channels=PCM_DEFAULT_CHANNELS,
+                    sample_width=PCM_DEFAULT_SAMPLE_WIDTH,
+                )
+            )
+        return frames
+
+    def flush(self) -> AudioChunk | None:
+        """Return the final partial frame padded with silence, if any."""
+        if not self._pending:
+            return None
+        frame = bytes(self._pending) + b"\x00" * (
+            self._frame_bytes - len(self._pending)
+        )
+        self._pending.clear()
+        return AudioChunk(
+            data=frame,
+            format="pcm",
+            sample_rate=self._sample_rate,
+            channels=PCM_DEFAULT_CHANNELS,
+            sample_width=PCM_DEFAULT_SAMPLE_WIDTH,
+        )

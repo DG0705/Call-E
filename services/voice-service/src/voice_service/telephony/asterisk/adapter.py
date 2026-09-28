@@ -60,6 +60,7 @@ class AsteriskAdapter:
         # under MongoDB), so routing state kept only on the call object would
         # be lost; see bind_egress.
         self._egress_remotes: dict[str, tuple[str, int]] = {}
+        self._egress_frame_counts: dict[str, int] = {}
         self._logger = logger or logging.getLogger(TELEPHONY_EVENT_LOGGER)
 
     @property
@@ -223,6 +224,24 @@ class AsteriskAdapter:
         if remote is None:
             remote = self._adopt_egress_marker(call, channel_id)
         if remote is not None and self._media_egress is not None:
+            log_telephony_event(
+                self._logger,
+                "egress_audio_started",
+                tenant_id=call.tenant_id,
+                agent_id=call.agent_id,
+                call_id=call.call_id,
+                conversation_id=call.conversation_id,
+                request_id=request_id,
+                egress_host=remote[0],
+                egress_port=remote[1],
+                audio_format=audio.format,
+                audio_bytes=len(audio.data),
+                message=(
+                    f"egress_audio_started egress_host={remote[0]} "
+                    f"egress_port={remote[1]} audio_format={audio.format} "
+                    f"audio_bytes={len(audio.data)}"
+                ),
+            )
             try:
                 sent = await self._media_egress.send(channel_id, remote, audio)
             except Exception as exc:
@@ -259,6 +278,61 @@ class AsteriskAdapter:
             await self._transport.play_media(channel_id, media)
         except Exception as exc:
             raise TelephonyProviderError("Asterisk could not play response audio.") from exc
+
+    async def send_audio_frame(
+        self,
+        call: TelephonyCall,
+        frame: AudioChunk,
+        *,
+        request_id: str | None = None,
+    ) -> int:
+        """Stream one 20 ms PCM frame toward the phone over bound RTP egress.
+
+        Provider-neutral incremental counterpart to :meth:`send_audio` for
+        streaming TTS: each frame is paced through the shared sender, so
+        output keeps real-time cadence no matter how fast chunks arrive. The
+        first frame logs ``egress_audio_started`` (first-RTP timing); per-call
+        frame totals are readable via :meth:`streamed_frame_count` for the
+        end-of-stream summary. Returns datagrams sent (0 when unbound).
+        """
+        channel_id = self._channel_for(call)
+        remote = self._egress_remotes.get(channel_id)
+        if remote is None:
+            remote = self._adopt_egress_marker(call, channel_id)
+        if remote is None or self._media_egress is None:
+            return 0
+        first = self._egress_frame_counts.get(channel_id, 0) == 0
+        if first:
+            log_telephony_event(
+                self._logger,
+                "egress_audio_started",
+                tenant_id=call.tenant_id,
+                agent_id=call.agent_id,
+                call_id=call.call_id,
+                conversation_id=call.conversation_id,
+                request_id=request_id,
+                egress_host=remote[0],
+                egress_port=remote[1],
+                audio_format=frame.format,
+                message=(
+                    f"egress_audio_started egress_host={remote[0]} "
+                    f"egress_port={remote[1]} audio_format={frame.format}"
+                ),
+            )
+        try:
+            sent = await self._media_egress.send_frame(channel_id, remote, frame)
+        except Exception as exc:
+            raise TelephonyProviderError(
+                "Asterisk could not stream response audio."
+            ) from exc
+        self._egress_frame_counts[channel_id] = (
+            self._egress_frame_counts.get(channel_id, 0) + sent
+        )
+        return sent
+
+    def streamed_frame_count(self, channel_id: str) -> int:
+        """Return paced RTP datagrams streamed for a channel this call."""
+        return self._egress_frame_counts.get(channel_id, 0)
 
     def _adopt_egress_marker(
         self, call: TelephonyCall, channel_id: str
@@ -327,6 +401,7 @@ class AsteriskAdapter:
         self.media_ingress.release(channel_id)
         self._channels.pop(call.call_id, None)
         self._egress_remotes.pop(channel_id, None)
+        self._egress_frame_counts.pop(channel_id, None)
         if self._media_egress is not None:
             self._media_egress.release(channel_id)
         return call

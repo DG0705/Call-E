@@ -107,6 +107,19 @@ class MockTelephonyProvider:
         if isinstance(sent, list):
             sent.append(audio)
 
+    async def send_audio_frame(
+        self,
+        call: TelephonyCall,
+        frame: AudioChunk,
+        *,
+        request_id: str | None = None,
+    ) -> int:
+        state = self._state_for(call.call_id)
+        sent = state["sent"]
+        if isinstance(sent, list):
+            sent.append(frame)
+        return 1
+
     async def hangup(
         self, call: TelephonyCall, *, request_id: str | None = None
     ) -> TelephonyCall:

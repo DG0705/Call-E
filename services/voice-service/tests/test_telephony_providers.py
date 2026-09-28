@@ -524,6 +524,167 @@ def test_rtp_egress_release_drops_channel_state() -> None:
     assert sender.pending_packets("chan-1") is None
 
 
+def test_rtp_egress_send_frame_paces_single_frames() -> None:
+    import struct
+
+    from voice_service.telephony.asterisk.rtp_egress import RtpEgressSender
+
+    class RecordingTransport:
+        def __init__(self) -> None:
+            self.sent: list[tuple[bytes, tuple[str, int]]] = []
+
+        def sendto(self, data: bytes, addr: tuple[str, int]) -> None:
+            self.sent.append((bytes(data), addr))
+
+    now = [2000.0]
+    sleeps: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+        now[0] += delay
+
+    sender = RtpEgressSender(_clock=lambda: now[0], _sleep=fake_sleep)
+    transport = RecordingTransport()
+    sender._transport = transport  # type: ignore[assignment]
+    remote = ("127.0.0.1", 9998)
+    frame = AudioChunk(data=b"\x00\x00" * 160, format="pcm")
+
+    async def main() -> list[int]:
+        return [await sender.send_frame("chan-frame", remote, frame) for _ in range(3)]
+
+    counts = asyncio.run(main())
+
+    assert counts == [1, 1, 1]
+    assert [addr for _, addr in transport.sent] == [remote] * 3
+    assert [len(data) for data, _ in transport.sent] == [12 + 160] * 3
+    headers = [struct.unpack(">BBHII", data[:12]) for data, _ in transport.sent]
+    assert [header[2] for header in headers] == [0, 1, 2]
+    assert [header[3] for header in headers] == [0, 160, 320]
+    # First frame sends immediately; later frames wait for their 20 ms
+    # deadlines with no accumulated drift.
+    assert sleeps == pytest.approx([0.020, 0.020])
+    assert now[0] == pytest.approx(2000.0 + 2 * 0.020)
+
+
+def test_rtp_egress_send_frame_paces_burst_arrivals() -> None:
+    from voice_service.telephony.asterisk.rtp_egress import RtpEgressSender
+
+    class RecordingTransport:
+        def __init__(self) -> None:
+            self.sent: list[tuple[bytes, tuple[str, int]]] = []
+
+        def sendto(self, data: bytes, addr: tuple[str, int]) -> None:
+            self.sent.append((bytes(data), addr))
+
+    # The clock only advances through sleeps: every frame "arrives" in the
+    # same instant, mimicking a TTS producer faster than real time.
+    now = [3000.0]
+    sleeps: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+        now[0] += delay
+
+    sender = RtpEgressSender(_clock=lambda: now[0], _sleep=fake_sleep)
+    transport = RecordingTransport()
+    sender._transport = transport  # type: ignore[assignment]
+    frame = AudioChunk(data=b"\x00\x00" * 160, format="pcm")
+
+    async def main() -> None:
+        for _ in range(4):
+            await sender.send_frame("chan-burst", ("127.0.0.1", 9997), frame)
+
+    asyncio.run(main())
+
+    assert len(transport.sent) == 4
+    assert sleeps == pytest.approx([0.020, 0.020, 0.020])
+    assert now[0] == pytest.approx(3000.0 + 3 * 0.020)
+
+
+def test_adapter_send_audio_frame_streams_with_started_event(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    transport = FakeAsteriskTransport()
+    adapter = build_adapter(transport=transport)
+    call = asyncio.run(
+        adapter.start_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            destination_number="+15550002",
+        )
+    )
+    caplog.set_level(logging.INFO, logger="voice_service.telephony.events")
+
+    async def main() -> list[int]:
+        try:
+            adapter.bind_egress(call, remote_host="127.0.0.1", remote_port=9996)
+            return [
+                await adapter.send_audio_frame(
+                    call, AudioChunk(data=b"\x00\x00" * 160, format="pcm")
+                )
+                for _ in range(2)
+            ]
+        finally:
+            await adapter.close()
+
+    counts = asyncio.run(main())
+
+    assert counts == [1, 1]
+    assert adapter.streamed_frame_count("channel-1") == 2
+    started = [
+        record.telephony_event
+        for record in caplog.records
+        if record.telephony_event["event"] == "egress_audio_started"
+    ]
+    assert len(started) == 1
+    assert started[0]["egress_host"] == "127.0.0.1"
+    assert started[0]["egress_port"] == 9996
+
+
+def test_adapter_send_audio_frame_returns_zero_when_unbound() -> None:
+    transport = FakeAsteriskTransport()
+    adapter = build_adapter(transport=transport)
+    call = asyncio.run(
+        adapter.start_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            destination_number="+15550002",
+        )
+    )
+
+    async def main() -> int:
+        try:
+            return await adapter.send_audio_frame(
+                call, AudioChunk(data=b"\x00\x00" * 160, format="pcm")
+            )
+        finally:
+            await adapter.close()
+
+    assert asyncio.run(main()) == 0
+
+
+def test_mock_provider_send_audio_frame_records_frame() -> None:
+    from voice_service.telephony.mock_provider import MockTelephonyProvider
+
+    provider = MockTelephonyProvider()
+    call = asyncio.run(
+        provider.start_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            destination_number="+15550002",
+        )
+    )
+    frame = AudioChunk(data=b"\x00\x00" * 160, format="pcm")
+
+    sent = asyncio.run(provider.send_audio_frame(call, frame))
+
+    assert sent == 1
+    assert provider.sent_audio(call.call_id) == [frame]
+
+
 def test_adapter_send_audio_uses_egress_when_bound() -> None:
     import socket
 
@@ -660,6 +821,60 @@ def test_egress_send_logs_destination_and_counts(
     ]
     assert len(learned_messages) == 1
     assert f"egress_host=127.0.0.1 egress_port={port}" in learned_messages[0]
+
+
+def test_adapter_egress_logs_started_before_sent(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import socket
+
+    transport = FakeAsteriskTransport()
+    adapter = build_adapter(transport=transport)
+    call = asyncio.run(
+        adapter.start_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            destination_number="+15550002",
+        )
+    )
+    receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    receiver.bind(("127.0.0.1", 0))
+    receiver.settimeout(5)
+    port = receiver.getsockname()[1]
+    caplog.set_level(logging.INFO, logger="voice_service.telephony.events")
+
+    async def main() -> None:
+        try:
+            adapter.bind_egress(call, remote_host="127.0.0.1", remote_port=port)
+            await adapter.send_audio(
+                call, AudioChunk(data=b"\x00\x00" * 160, format="pcm")
+            )
+        finally:
+            await adapter.close()
+
+    try:
+        asyncio.run(main())
+        packet, _ = receiver.recvfrom(4096)
+    finally:
+        receiver.close()
+
+    assert len(packet) == 12 + 160
+    events = [
+        record.telephony_event["event"]
+        for record in caplog.records
+        if record.telephony_event["event"]
+        in ("egress_audio_started", "egress_audio_sent")
+    ]
+    assert events == ["egress_audio_started", "egress_audio_sent"]
+    started = next(
+        record.telephony_event
+        for record in caplog.records
+        if record.telephony_event["event"] == "egress_audio_started"
+    )
+    assert started["egress_host"] == "127.0.0.1"
+    assert started["egress_port"] == port
+    assert started["audio_bytes"] == 320
 
 
 def test_ulaw_decode_roundtrip_is_stable_for_every_code() -> None:

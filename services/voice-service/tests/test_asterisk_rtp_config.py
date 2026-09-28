@@ -47,6 +47,17 @@ def test_transport_advertises_host_reachable_media_address() -> None:
     assert "external_media_address = 127.0.0.1" in section
 
 
+def test_transport_advertises_host_reachable_signaling_address() -> None:
+    # Without external_signaling_address, Contact/Via carry the container IP
+    # (e.g. 172.19.0.x), which the host softphone cannot route the INVITE
+    # ACK back to. Asterisk then retransmits 200 OK until the INVITE server
+    # transaction (Timer H) fires at exactly 32 seconds and ends every call
+    # with an Asterisk-originated BYE.
+    section = transport_section(read_pjsip_conf())
+
+    assert "external_signaling_address = 127.0.0.1" in section
+
+
 def test_transport_does_not_classify_docker_gateway_as_local() -> None:
     # Docker source-NATs host-originated SIP to the bridge gateway
     # (172.19.0.1), which any Docker-sized local_net would match — making

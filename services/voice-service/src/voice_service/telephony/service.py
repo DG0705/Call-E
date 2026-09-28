@@ -324,11 +324,17 @@ class TelephonyService:
             input_format=audio.format,
         )
         try:
+            async def _stream_frame(frame: AudioChunk) -> None:
+                await self._provider.send_audio_frame(
+                    call, frame, request_id=request_id
+                )
+
             result = await self._voice_manager.process_audio_input(
                 tenant_id=call.tenant_id,
                 session_id=str(session_id),
                 audio=audio,
                 request_id=request_id,
+                audio_sink=_stream_frame,
             )
         except Exception as exc:
             log_telephony_event(
@@ -364,9 +370,13 @@ class TelephonyService:
             request_id=request_id,
         )
         try:
-            await self._provider.send_audio(
-                call, result.audio, request_id=request_id
-            )
+            # Streaming turns already played their audio frame-by-frame
+            # through the sink above (empty audio payload); only the
+            # classic buffered path still needs a send here.
+            if result.audio.data:
+                await self._provider.send_audio(
+                    call, result.audio, request_id=request_id
+                )
         except Exception as exc:
             raise PlatformError(
                 code=_TELEPHONY_PROVIDER_ERROR,
@@ -383,6 +393,7 @@ class TelephonyService:
             session_id=str(session_id),
             request_id=request_id,
             content_type=result.content_type,
+            rtp_packets=result.audio_packets_streamed,
         )
         return result
 

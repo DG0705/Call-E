@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from collections.abc import AsyncIterator
 
 import httpx
 import pytest
@@ -98,6 +99,9 @@ class EmptyTranscriptSTTProvider:
 
 class FailingTTSProvider:
     async def synthesize(self, **kwargs: object) -> TTSResult:
+        raise RuntimeError("tts failed")
+
+    def synthesize_stream(self, **kwargs: object) -> AsyncIterator[AudioChunk]:
         raise RuntimeError("tts failed")
 
 
@@ -726,9 +730,46 @@ def test_manager_emits_lifecycle_events(caplog: pytest.LogCaptureFixture) -> Non
         "runtime_response_generated",
         "tts_started",
         "synthesis_completed",
+        "turn_completed",
     ]
     for record in caplog.records:
         assert record.voice_event["tenant_id"] == "tenant-1"
+
+
+def test_manager_emits_latency_stage_timings(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="voice_service.events")
+    manager = build_manager()
+    session = asyncio.run(
+        manager.create_session(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+    asyncio.run(
+        manager.process_audio_input(
+            tenant_id="tenant-1",
+            session_id=session.session_id,
+            audio=AudioChunk(data=b"audio", format="pcm"),
+        )
+    )
+
+    by_event = {
+        record.voice_event["event"]: record.voice_event for record in caplog.records
+    }
+    assert by_event["transcription_completed"]["stt_elapsed_ms"] >= 0
+    assert by_event["runtime_response_generated"]["runtime_elapsed_ms"] >= 0
+    assert by_event["synthesis_completed"]["tts_elapsed_ms"] >= 0
+    completed = by_event["turn_completed"]
+    assert completed["turn_elapsed_ms"] >= 0
+    assert (
+        completed["turn_elapsed_ms"]
+        >= completed["stt_elapsed_ms"]
+        + completed["runtime_elapsed_ms"]
+        + completed["tts_elapsed_ms"]
+    )
+    assert completed["response_chars"] > 0
+    assert completed["audio_bytes"] > 0
 
 
 def test_manager_emits_failed_event(caplog: pytest.LogCaptureFixture) -> None:
@@ -852,3 +893,242 @@ def test_agent_runtime_http_client_calls_agent_service_contract() -> None:
     assert result.text == "Mock response: Hello"
     assert result.provider_name == "mock"
     assert result.model_name == "mock-agent-runtime-v1"
+
+
+# --- Streaming TTS turn pipeline ---
+
+
+class ChunkyTTSProvider:
+    """Fake streaming provider yielding PCM in uneven blobs."""
+
+    provider_name = "chunky"
+
+    def __init__(self, blobs: list[bytes], *, fail_after: int | None = None) -> None:
+        self._blobs = blobs
+        self._fail_after = fail_after
+        self.yielded_bytes = 0
+        self.yielded_at_first_sink = -1
+        self.closed = False
+
+    async def synthesize(self, **kwargs: object) -> TTSResult:
+        return TTSResult(
+            audio=AudioChunk(data=b"".join(self._blobs), format="pcm"),
+            provider=self.provider_name,
+            content_type="audio/pcm",
+        )
+
+    def synthesize_stream(self, **kwargs: object) -> AsyncIterator[AudioChunk]:
+        return self._generate()
+
+    def note_sink(self) -> None:
+        if self.yielded_at_first_sink < 0:
+            self.yielded_at_first_sink = self.yielded_bytes
+
+    async def _generate(self) -> AsyncIterator[AudioChunk]:
+        try:
+            for index, blob in enumerate(self._blobs):
+                if self._fail_after is not None and index >= self._fail_after:
+                    raise RuntimeError("tts stream failed")
+                self.yielded_bytes += len(blob)
+                yield AudioChunk(data=blob, format="pcm")
+        finally:
+            self.closed = True
+
+
+def run_stream_turn(
+    tts: object,
+) -> tuple[object, list[AudioChunk], ChunkyTTSProvider | None]:
+    manager = build_manager(tts=tts)
+    session = asyncio.run(
+        manager.create_session(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+    frames: list[AudioChunk] = []
+    provider = tts if isinstance(tts, ChunkyTTSProvider) else None
+
+    async def main() -> object:
+        async def _sink(frame: AudioChunk) -> None:
+            if provider is not None:
+                provider.note_sink()
+            frames.append(frame)
+
+        return await manager.process_audio_input(
+            tenant_id="tenant-1",
+            session_id=session.session_id,
+            audio=AudioChunk(data=b"audio", format="pcm"),
+            audio_sink=_sink,
+        )
+
+    return asyncio.run(main()), frames, provider
+
+
+def test_streaming_turn_sends_first_frame_before_stream_end() -> None:
+    provider = ChunkyTTSProvider(
+        [b"\x01\x02" * 50, b"\x03\x04" * 250, b"\x05\x06" * 200]
+    )
+
+    result, frames, _ = run_stream_turn(provider)
+
+    assert result.audio_packets_streamed == 4
+    assert result.audio.data == b""
+    assert len(frames) == 4
+    assert all(len(frame.data) == 320 for frame in frames)
+    assert provider.yielded_at_first_sink == 600
+    assert provider.yielded_at_first_sink < 1000
+
+
+def test_streaming_turn_retains_partial_bytes_and_pads_final_flush() -> None:
+    provider = ChunkyTTSProvider([b"\x07" * 100, b"\x08" * 500, b"\x09" * 400])
+
+    result, frames, _ = run_stream_turn(provider)
+
+    assert result.audio_packets_streamed == 4
+    assert [len(frame.data) for frame in frames] == [320, 320, 320, 320]
+    assert frames[0].data == b"\x07" * 100 + b"\x08" * 220
+    assert frames[1].data == b"\x08" * 280 + b"\x09" * 40
+    assert frames[2].data == b"\x09" * 320
+    assert frames[3].data == b"\x09" * 40 + b"\x00" * 280
+
+
+def test_streaming_turn_emits_first_audio_instrumentation(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="voice_service.events")
+    provider = ChunkyTTSProvider([b"\x01" * 640])
+
+    run_stream_turn(provider)
+
+    by_event = {
+        record.voice_event["event"]: record.voice_event for record in caplog.records
+    }
+    assert by_event["tts_stream_started"]["text_chars"] > 0
+    assert by_event["tts_first_audio_chunk"]["first_chunk_elapsed_ms"] >= 0
+    completed = by_event["tts_audio_stream_completed"]
+    assert completed["tts_stream_chunks"] == 1
+    assert completed["tts_audio_bytes"] == 640
+    assert completed["frames_sent"] == 2
+    assert completed["completed"] is True
+    assert by_event["synthesis_completed"]["tts_elapsed_ms"] >= 0
+    assert by_event["turn_completed"]["audio_packets_streamed"] == 2
+
+
+def test_streaming_error_after_audio_keeps_partial_result(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="voice_service.events")
+    provider = ChunkyTTSProvider(
+        [b"\x01" * 320, b"\x02" * 320, b"\x03" * 320], fail_after=2
+    )
+
+    result, frames, _ = run_stream_turn(provider)
+
+    assert result.audio_packets_streamed == 2
+    assert result.audio.data == b""
+    assert len(frames) == 2
+    by_event = {
+        record.voice_event["event"]: record.voice_event for record in caplog.records
+    }
+    assert by_event["tts_stream_interrupted"]["frames_sent"] == 2
+    assert "turn_failed" not in by_event
+
+
+def test_streaming_error_before_first_audio_falls_back_to_buffered() -> None:
+    provider = ChunkyTTSProvider([b"\x01" * 320], fail_after=0)
+
+    result, frames, _ = run_stream_turn(provider)
+
+    assert result.audio.data == b"\x01" * 320
+    assert result.audio_packets_streamed == 0
+    assert frames == []
+
+
+def test_streaming_empty_response_falls_back_to_buffered() -> None:
+    provider = ChunkyTTSProvider([])
+
+    result, frames, _ = run_stream_turn(provider)
+
+    assert result.audio.data == b""
+    assert result.audio_packets_streamed == 0
+
+
+def test_streaming_cancellation_closes_provider_stream() -> None:
+    provider = ChunkyTTSProvider([b"\x01" * 640])
+    cleaned: list[bool] = []
+
+    async def never_ends() -> AsyncIterator[AudioChunk]:
+        try:
+            yield AudioChunk(data=b"\x01" * 640, format="pcm")
+            await asyncio.Future()
+            yield AudioChunk(data=b"", format="pcm")
+        finally:
+            cleaned.append(True)
+
+    provider.synthesize_stream = lambda **kwargs: never_ends()  # type: ignore[method-assign]
+    manager = build_manager(tts=provider)
+    session = asyncio.run(
+        manager.create_session(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    async def main() -> object:
+        task = asyncio.create_task(
+            manager.process_audio_input(
+                tenant_id="tenant-1",
+                session_id=session.session_id,
+                audio=AudioChunk(data=b"audio", format="pcm"),
+                audio_sink=lambda frame: asyncio.sleep(0),
+            )
+        )
+        await asyncio.sleep(0.05)
+        task.cancel()
+        return await task
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(main())
+    assert cleaned == [True]
+
+
+def test_mock_provider_streams_through_sink_with_buffered_fallback() -> None:
+    manager = build_manager()
+    session = asyncio.run(
+        manager.create_session(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+    frames: list[AudioChunk] = []
+
+    async def main() -> object:
+        async def _sink(frame: AudioChunk) -> None:
+            frames.append(frame)
+
+        return await manager.process_audio_input(
+            tenant_id="tenant-1",
+            session_id=session.session_id,
+            audio=AudioChunk(data=b"audio", format="pcm"),
+            audio_sink=_sink,
+        )
+
+    result = asyncio.run(main())
+
+    # Mock audio is tiny text bytes: either it frames into ≥1 streamed
+    # packet (empty buffered payload) or it falls back to buffered audio.
+    # Both outcomes are valid; the invariant is they never mix.
+    assert len(frames) == result.audio_packets_streamed
+    assert (result.audio.data == b"") == (result.audio_packets_streamed > 0)
+
+
+def test_pcm_frame_accumulator_splits_and_flushes() -> None:
+    from voice_service.audio import PcmFrameAccumulator
+
+    accumulator = PcmFrameAccumulator()
+    assert accumulator.append(b"\x01" * 100) == []
+    frames = accumulator.append(b"\x02" * 500)
+    assert [len(frame.data) for frame in frames] == [320]
+    assert accumulator.append(b"") == []
+    final = accumulator.flush()
+    assert final is not None
+    assert len(final.data) == 320
+    assert final.data == b"\x02" * 280 + b"\x00" * 40
+    assert accumulator.flush() is None

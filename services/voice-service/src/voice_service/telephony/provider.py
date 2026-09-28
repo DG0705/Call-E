@@ -71,6 +71,20 @@ class TelephonyProvider(Protocol):
         """Send synthesized audio out toward the phone."""
         ...
 
+    async def send_audio_frame(
+        self,
+        call: TelephonyCall,
+        frame: AudioChunk,
+        *,
+        request_id: str | None = None,
+    ) -> int:
+        """Stream one 20 ms PCM frame toward the phone; return datagrams sent.
+
+        Provider-neutral incremental counterpart to :meth:`send_audio` for
+        streaming TTS. Returns 0 when the call has no bound streaming egress.
+        """
+        ...
+
     async def hangup(
         self, call: TelephonyCall, *, request_id: str | None = None
     ) -> TelephonyCall:

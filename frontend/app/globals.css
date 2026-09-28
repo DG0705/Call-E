@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;
+
+  /* Deep burgundy — Call-E primary */
+  --color-brand-50: #faf2f3;
+  --color-brand-100: #f3e0e4;
+  --color-brand-200: #e5bcc4;
+  --color-brand-300: #d18f9c;
+  --color-brand-400: #b45a6c;
+  --color-brand-500: #93374b;
+  --color-brand-600: #7d2237;
+  --color-brand-700: #6a182c;
+  --color-brand-800: #541224;
+  --color-brand-900: #3f0d1b;
+  --color-brand-950: #2a0812;
+
+  /* Warm neutrals */
+  --color-cream-50: #faf8f6;
+  --color-cream-100: #f4f0eb;
+  --color-cream-200: #e9e1d8;
+
+  --color-ink-500: #7a706a;
+  --color-ink-600: #5d554f;
+  --color-ink-700: #453f3a;
+  --color-ink-800: #2e2a27;
+  --color-ink-900: #201d1b;
+
+  --color-line-200: #e7e1da;
+  --color-line-300: #d8d0c6;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-cream-50);
+  color: var(--color-ink-900);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background-color: var(--color-brand-200);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand-600);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
