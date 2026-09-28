@@ -15,7 +15,7 @@ from voice_service.audio import AudioChunk
 from voice_service.session import VoiceSessionManager, VoiceTurnResult
 from voice_service.telephony import events
 from voice_service.telephony.models import TelephonyCall
-from voice_service.telephony.observability import log_telephony_event
+from voice_service.telephony.observability import log_telephony_event, safe_error_message
 from voice_service.telephony.provider import TelephonyProvider
 from voice_service.telephony.store import CallStore
 
@@ -594,6 +594,13 @@ class TelephonyService:
                 conversation_id=getattr(call, "conversation_id", None),
                 request_id=request_id,
                 error_code=_CALL_PERSISTENCE_ERROR,
+                error=str(type(exc).__name__),
+                error_message=safe_error_message(exc),
+                message=(
+                    f"call_failed error={type(exc).__name__} "
+                    f"error_message={safe_error_message(exc)} "
+                    f"error_code={_CALL_PERSISTENCE_ERROR}"
+                ),
             )
             raise PlatformError(
                 code=_CALL_PERSISTENCE_ERROR,

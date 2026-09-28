@@ -1,6 +1,7 @@
 """Tests for telephony providers and the Asterisk adapter boundary."""
 
 import asyncio
+import logging
 
 import pytest
 
@@ -461,6 +462,56 @@ def test_rtp_egress_sender_delivers_udp_datagrams() -> None:
     assert (packet[1] & 0x7F) == 0
 
 
+def test_rtp_egress_send_paces_datagrams_at_frame_cadence() -> None:
+    import struct
+
+    from voice_service.telephony.asterisk.rtp_egress import RtpEgressSender
+
+    class RecordingTransport:
+        def __init__(self) -> None:
+            self.sent: list[tuple[bytes, tuple[str, int]]] = []
+
+        def sendto(self, data: bytes, addr: tuple[str, int]) -> None:
+            self.sent.append((bytes(data), addr))
+
+    now = [1000.0]
+    sleeps: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+        now[0] += delay
+
+    sender = RtpEgressSender(_clock=lambda: now[0], _sleep=fake_sleep)
+    transport = RecordingTransport()
+    sender._transport = transport  # type: ignore[assignment]
+    remote = ("127.0.0.1", 9999)
+
+    sent = asyncio.run(
+        sender.send(
+            "chan-paced",
+            remote,
+            AudioChunk(data=b"\x00\x00" * 480, format="pcm"),
+        )
+    )
+
+    # Packet count, destination, and header behavior are unchanged: three
+    # 20 ms frames with advancing sequence/timestamp and stable SSRC.
+    assert sent == 3
+    assert len(transport.sent) == 3
+    assert [addr for _, addr in transport.sent] == [remote] * 3
+    assert [len(data) for data, _ in transport.sent] == [12 + 160] * 3
+    headers = [struct.unpack(">BBHII", data[:12]) for data, _ in transport.sent]
+    assert [header[2] for header in headers] == [0, 1, 2]
+    assert [header[3] for header in headers] == [0, 160, 320]
+    assert {header[4] for header in headers} == {headers[0][4]}
+
+    # Pacing: first datagram sends immediately; each later datagram targets
+    # an absolute 20 ms deadline, so sleeps are ~20 ms and total elapsed
+    # time equals (n - 1) frames with no accumulated drift.
+    assert sleeps == pytest.approx([0.020, 0.020])
+    assert now[0] == pytest.approx(1000.0 + 2 * 0.020)
+
+
 def test_rtp_egress_release_drops_channel_state() -> None:
     from voice_service.telephony.asterisk.rtp_egress import RtpEgressSender
 
@@ -508,6 +559,107 @@ def test_adapter_send_audio_uses_egress_when_bound() -> None:
 
     assert transport.play_calls == []
     assert len(packet) == 12 + 160
+
+
+def test_adapter_egress_binding_released_on_hangup() -> None:
+    transport = FakeAsteriskTransport()
+    adapter = build_adapter(transport=transport)
+    call = asyncio.run(
+        adapter.start_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            destination_number="+15550002",
+        )
+    )
+
+    async def main() -> None:
+        try:
+            adapter.bind_egress(call, remote_host="127.0.0.1", remote_port=9999)
+            assert adapter._egress_remotes == {"channel-1": ("127.0.0.1", 9999)}  # type: ignore[attr-defined]
+            await adapter.hangup(call)
+        finally:
+            await adapter.close()
+
+    asyncio.run(main())
+
+    assert adapter._egress_remotes == {}  # type: ignore[attr-defined]
+
+
+def test_egress_send_logs_destination_and_counts(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import socket
+
+    transport = FakeAsteriskTransport()
+    adapter = build_adapter(transport=transport)
+    call = asyncio.run(
+        adapter.start_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            destination_number="+15550002",
+        )
+    )
+    receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    receiver.bind(("127.0.0.1", 0))
+    receiver.settimeout(5)
+    port = receiver.getsockname()[1]
+    caplog.set_level(logging.INFO, logger="voice_service.telephony.events")
+
+    async def main() -> None:
+        try:
+            adapter.bind_egress(call, remote_host="127.0.0.1", remote_port=port)
+            await adapter.send_audio(
+                call, AudioChunk(data=b"\x00\x00" * 160, format="pcm")
+            )
+        finally:
+            await adapter.close()
+
+    try:
+        asyncio.run(main())
+        packet, _ = receiver.recvfrom(4096)
+    finally:
+        receiver.close()
+
+    assert len(packet) == 12 + 160
+    sent = [
+        record.telephony_event
+        for record in caplog.records
+        if record.telephony_event["event"] == "egress_audio_sent"
+    ]
+    assert len(sent) == 1
+    assert sent[0]["egress_host"] == "127.0.0.1"
+    assert sent[0]["egress_port"] == port
+    assert sent[0]["rtp_packets"] == 1
+    assert sent[0]["audio_format"] == "pcm"
+    assert sent[0]["audio_bytes"] == 320
+    learned = [
+        record.telephony_event
+        for record in caplog.records
+        if record.telephony_event["event"] == "egress_remote_learned"
+    ]
+    assert len(learned) == 1
+    assert learned[0]["egress_host"] == "127.0.0.1"
+    assert learned[0]["egress_port"] == port
+    # The message text itself carries the diagnostics: production pipelines
+    # render only getMessage(), dropping the structured extra payload.
+    sent_messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.telephony_event["event"] == "egress_audio_sent"
+    ]
+    assert len(sent_messages) == 1
+    assert f"egress_host=127.0.0.1 egress_port={port}" in sent_messages[0]
+    assert "rtp_packets=1" in sent_messages[0]
+    assert "audio_format=pcm" in sent_messages[0]
+    learned_messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.telephony_event["event"] == "egress_remote_learned"
+    ]
+    assert len(learned_messages) == 1
+    assert f"egress_host=127.0.0.1 egress_port={port}" in learned_messages[0]
 
 
 def test_ulaw_decode_roundtrip_is_stable_for_every_code() -> None:
@@ -669,7 +821,7 @@ def test_http_transport_create_external_media_posts_ari() -> None:
     )
     assert seen["params"] == {
         "app": "call-e",
-        "externalHost": "voice-service:10000",
+        "external_host": "voice-service:10000",
         "format": "ulaw",
     }
 

@@ -8,9 +8,12 @@ vertical slice handles StasisStart, media setup, turns, and cleanup.
 """
 
 import asyncio
+import logging
 import socket
 import struct
 from datetime import UTC, datetime
+
+import pytest
 
 from voice_service.audio import AudioChunk
 from voice_service.models import VoiceSession
@@ -84,10 +87,16 @@ class RecordingTransport:
                 return pending["channel_id"]
         raise RuntimeError("no pending Stasis channel")
 
+    def _maybe_fail(self, op: str) -> None:
+        if op in self.fail_on:
+            raise RuntimeError(f"injected failure at {op}")
+
     async def answer(self, channel_id: str) -> None:
+        self._maybe_fail("answer")
         self.answered.append(channel_id)
 
     async def hangup(self, channel_id: str) -> None:
+        self._maybe_fail("hangup")
         self.hung_up.append(channel_id)
 
     async def play_media(self, channel_id: str, media: bytes) -> None:
@@ -96,13 +105,16 @@ class RecordingTransport:
     async def create_external_media(
         self, *, app: str, external_host: str, media_format: str = "ulaw"
     ) -> str:
+        self._maybe_fail("create_external_media")
         self.external_hosts.append(external_host)
         return "external-1"
 
     async def create_bridge(self) -> str:
+        self._maybe_fail("create_bridge")
         return self.bridges[0]
 
     async def add_channel_to_bridge(self, bridge_id: str, channel_id: str) -> None:
+        self._maybe_fail("add_channel_to_bridge")
         self.bridge_adds.append((bridge_id, channel_id))
 
     async def destroy_bridge(self, bridge_id: str) -> None:
@@ -468,3 +480,109 @@ def test_app_builds_live_runner_only_for_asterisk() -> None:
 
     assert isinstance(asterisk_app.state.live_call_runner, AsteriskLiveCallRunner)
     assert mock_app.state.live_call_runner is None
+
+
+def test_setup_failure_records_stage_and_safe_reason(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    harness = Harness()
+    harness.transport.fail_on.add("answer")
+    caplog.set_level(logging.INFO, logger="voice_service.telephony.events")
+
+    asyncio.run(harness.runner.handle_event(stasis_start()))
+
+    failed = [
+        record.telephony_event
+        for record in caplog.records
+        if record.telephony_event["event"] == "inbound_setup_failed"
+    ]
+    assert len(failed) == 1
+    payload = failed[0]
+    assert payload["stage"] == "answer"
+    assert payload["error"] == "PlatformError"
+    assert "could not answer" in payload["error_message"]
+    assert payload["error_code"] == "telephony_provider_error"
+    assert harness.runner._states == {}  # type: ignore[attr-defined]
+
+
+def test_setup_failure_message_text_carries_safe_diagnostics(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    harness = Harness()
+    harness.transport.fail_on.add("answer")
+    caplog.set_level(logging.INFO, logger="voice_service.telephony.events")
+
+    asyncio.run(harness.runner.handle_event(stasis_start()))
+
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.telephony_event["event"] == "inbound_setup_failed"
+    ]
+    assert len(messages) == 1
+    assert "stage=answer" in messages[0]
+    assert "error=PlatformError" in messages[0]
+    assert "error_code=telephony_provider_error" in messages[0]
+    assert "could not answer" in messages[0]
+
+
+def test_setup_failure_message_redacts_credentials() -> None:
+    from voice_service.telephony.asterisk.live_call import _setup_failure_message
+
+    message = _setup_failure_message(
+        stage="answer",
+        exc=RuntimeError("dial failed: password=hunter2 token=abc"),
+        error_code=None,
+    )
+
+    assert message.startswith("inbound_setup_failed stage=answer")
+    assert "error=RuntimeError" in message
+    assert "hunter2" not in message
+    assert "password=***" in message
+    assert "error_code" not in message
+
+
+def test_setup_failure_before_any_mark_has_null_error_code(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    harness = Harness()
+    harness.transport.fail_on.add("create_bridge")
+    caplog.set_level(logging.INFO, logger="voice_service.telephony.events")
+
+    asyncio.run(harness.runner.handle_event(stasis_start()))
+
+    failed = [
+        record.telephony_event
+        for record in caplog.records
+        if record.telephony_event["event"] == "inbound_setup_failed"
+    ]
+    assert len(failed) == 1
+    assert failed[0]["stage"] == "external_media"
+    assert failed[0]["error"] == "RuntimeError"
+    assert failed[0]["error_code"] is None
+    assert harness.runner._states == {}  # type: ignore[attr-defined]
+
+
+def test_safe_error_message_redacts_credentials() -> None:
+    from voice_service.telephony.asterisk.live_call import _safe_error_message
+
+    leaked = RuntimeError(
+        "dial failed: password=hunter2 api_key=AKIA123 token=abc "
+        "Authorization: Bearer xyz secret=top"
+    )
+    scrubbed = _safe_error_message(leaked)
+
+    assert "hunter2" not in scrubbed
+    assert "AKIA123" not in scrubbed
+    assert "Bearer xyz" not in scrubbed
+    assert "password=***" in scrubbed
+    assert "dial failed" in scrubbed
+
+
+def test_safe_error_message_truncates_long_messages() -> None:
+    from voice_service.telephony.asterisk.live_call import _safe_error_message
+
+    scrubbed = _safe_error_message(RuntimeError("x" * 500))
+
+    assert len(scrubbed) <= 203
+    assert scrubbed.endswith("...")

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 
@@ -38,6 +39,43 @@ from voice_service.utterance import UtteranceAccumulator, UtteranceConfig
 _HANGUP_EVENT_TYPES = frozenset(
     {"StasisEnd", "ChannelHangupRequest", "ChannelDestroyed"}
 )
+
+_SAFE_SECRET_PATTERN = re.compile(
+    r"(?i)(password|passwd|api[_-]?key|auth(?:orization)?|token|secret)\s*[:=]\s*\S+"
+)
+_MAX_ERROR_MESSAGE_CHARS = 200
+
+
+def _safe_error_message(exc: BaseException) -> str:
+    """Render an exception message safe for structured logs.
+
+    Truncates and redacts credential-shaped key=value fragments so setup
+    failures record their reason without ever leaking passwords, API keys,
+    authorization headers, or SIP credentials.
+    """
+    message = str(exc).strip().replace("\n", " ")
+    message = _SAFE_SECRET_PATTERN.sub(r"\1=***", message)
+    if len(message) > _MAX_ERROR_MESSAGE_CHARS:
+        message = message[:_MAX_ERROR_MESSAGE_CHARS] + "..."
+    return message
+
+
+def _setup_failure_message(
+    *, stage: str, exc: BaseException, error_code: str | None
+) -> str:
+    """Build log-record text for a setup failure.
+
+    Some production pipelines render only the message text, so the safe
+    diagnostic fields are repeated here in addition to the structured
+    payload. Never includes credentials (see :func:`_safe_error_message`).
+    """
+    parts = [f"inbound_setup_failed stage={stage}", f"error={type(exc).__name__}"]
+    if error_code:
+        parts.append(f"error_code={error_code}")
+    safe_message = _safe_error_message(exc)
+    if safe_message:
+        parts.append(f"error_message={safe_message}")
+    return " ".join(parts)
 
 
 @dataclass
@@ -175,7 +213,12 @@ class AsteriskLiveCallRunner:
         except Exception as exc:
             self._log_call_event(
                 "inbound_setup_failed", None, route.tenant_id, route.agent_id,
-                conversation_id, request_id, stage="create", error=str(type(exc).__name__),
+                conversation_id, request_id, stage="create",
+                error=str(type(exc).__name__),
+                error_message=_safe_error_message(exc),
+                message=_setup_failure_message(
+                    stage="create", exc=exc, error_code=None
+                ),
             )
             await self._reject_channel(channel_id, reason="create_failed")
             return
@@ -205,6 +248,11 @@ class AsteriskLiveCallRunner:
             self._log_call_event(
                 "inbound_setup_failed", call, None, None, None, request_id,
                 stage=stage, error=str(type(exc).__name__),
+                error_message=_safe_error_message(exc),
+                error_code=call.error_code,
+                message=_setup_failure_message(
+                    stage=stage, exc=exc, error_code=call.error_code
+                ),
             )
             await self._cleanup(channel_id, reason="setup_failed")
             return
@@ -433,6 +481,11 @@ class AsteriskLiveCallRunner:
                 await self._transport.destroy_bridge(state.bridge_id)
             except Exception:
                 pass
+        # Release the ingress listener explicitly: telephony.hangup may bail
+        # out before reaching the adapter (e.g. call already marked failed),
+        # which would otherwise orphan the bound UDP port. release() is
+        # idempotent, so this is safe alongside adapter.hangup.
+        self._ingress.release(channel_id)
         self._states.pop(channel_id, None)
         self._log_call_event(
             "live_call_cleanup", state.call, None, None, None,
@@ -447,6 +500,8 @@ class AsteriskLiveCallRunner:
         agent_id: str | None,
         conversation_id: str | None,
         request_id: str | None,
+        *,
+        message: str | None = None,
         **details: object,
     ) -> None:
         session_id = call.metadata.get("session_id") if call is not None else None
@@ -459,6 +514,7 @@ class AsteriskLiveCallRunner:
             conversation_id=call.conversation_id if call else conversation_id,
             session_id=str(session_id) if session_id else None,
             request_id=request_id,
+            message=message,
             **details,
         )
 

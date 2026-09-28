@@ -500,6 +500,68 @@ def test_answer_failure_marks_call_failed() -> None:
     assert loaded.error_code == "telephony_provider_error"
 
 
+class FailingCreateCallStore(InMemoryCallStore):
+    """Call store that fails persistence to exercise failure diagnostics."""
+
+    async def create(self, call: object) -> None:
+        raise RuntimeError("insert failed: password=hunter2 timeout after 1000ms")
+
+
+def test_persist_failure_logs_safe_original_reason(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    manager = VoiceSessionManager(
+        stt_provider=MockSTTProvider(),
+        tts_provider=MockTTSProvider(),
+        agent_runtime=FakeAgentRuntimeClient(),  # type: ignore[arg-type]
+        session_store=InMemoryVoiceSessionStore(),
+    )
+    service = TelephonyService(
+        provider=MockTelephonyProvider(),  # type: ignore[arg-type]
+        call_store=FailingCreateCallStore(),
+        voice_manager=manager,
+        event_publisher=RecordingEventPublisher(),
+    )
+    caplog.set_level(logging.INFO, logger="voice_service.telephony.events")
+
+    with pytest.raises(PlatformError) as excinfo:
+        run(
+            service.create_inbound_call(
+                tenant_id="tenant-1",
+                agent_id="agent-1",
+                caller_number="+15550001",
+                destination_number="+15550002",
+                conversation_id="conversation-1",
+            )
+        )
+
+    # PlatformError contract is unchanged.
+    assert excinfo.value.code == "call_persistence_error"
+    assert excinfo.value.status_code == 502
+    failed = [
+        record.telephony_event
+        for record in caplog.records
+        if record.telephony_event["event"] == "call_failed"
+    ]
+    assert len(failed) == 1
+    assert failed[0]["error"] == "RuntimeError"
+    assert failed[0]["error_code"] == "call_persistence_error"
+    assert "timeout after 1000ms" in failed[0]["error_message"]
+    assert "hunter2" not in failed[0]["error_message"]
+    assert "password=***" in failed[0]["error_message"]
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.telephony_event["event"] == "call_failed"
+    ]
+    assert len(messages) == 1
+    assert messages[0].startswith("call_failed ")
+    assert "error=RuntimeError" in messages[0]
+    assert "error_code=call_persistence_error" in messages[0]
+    assert "timeout after 1000ms" in messages[0]
+    assert "hunter2" not in messages[0]
+
+
 def test_service_emits_structured_telephony_logs(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -607,3 +669,131 @@ def test_mock_e2e_with_real_agent_runtime() -> None:
         events.CALL_ANSWERED,
         events.CALL_STARTED,
     ]
+
+
+class CopyOnReadCallStore(InMemoryCallStore):
+    """Call store with MongoDB copy semantics for reads and writes.
+
+    In-memory stores hand out the identical object, so in-memory metadata
+    mutations stay visible. MongoDB serializes on write and re-validates on
+    every read, so only persisted fields survive. This fake snapshots on
+    write and returns fresh validated copies on read, reproducing the
+    production semantics that greeting delivery must survive.
+    """
+
+    async def create(self, call: object) -> None:
+        import copy
+
+        from voice_service.telephony.models import TelephonyCall
+
+        assert isinstance(call, TelephonyCall)
+        await super().create(
+            TelephonyCall.model_validate(copy.deepcopy(call.model_dump(by_alias=True)))
+        )
+
+    async def get(self, *, tenant_id: str, call_id: str):  # type: ignore[no-untyped-def]
+        import copy
+
+        from voice_service.telephony.models import TelephonyCall
+
+        stored = await super().get(tenant_id=tenant_id, call_id=call_id)
+        if stored is None:
+            return None
+        return TelephonyCall.model_validate(
+            copy.deepcopy(stored.model_dump(by_alias=True))
+        )
+
+
+class PlayMediaFailingTransport:
+    """ARI transport whose play_media fails exactly like the real one."""
+
+    def __init__(self) -> None:
+        self.answered: list[str] = []
+        self.hung_up: list[str] = []
+
+    async def accept_inbound(
+        self, *, caller_number: str, destination_number: str
+    ) -> str:
+        return "channel-1"
+
+    async def answer(self, channel_id: str) -> None:
+        self.answered.append(channel_id)
+
+    async def hangup(self, channel_id: str) -> None:
+        self.hung_up.append(channel_id)
+
+    async def play_media(self, channel_id: str, media: bytes) -> None:
+        from voice_service.telephony.asterisk.transport import (
+            AsteriskTransportError,
+        )
+
+        raise AsteriskTransportError(
+            "RTP media streaming is not implemented in this foundation."
+        )
+
+
+def test_greeting_delivery_survives_store_copy_semantics() -> None:
+    import socket
+
+    from voice_service.telephony.asterisk.adapter import AsteriskAdapter
+
+    runtime = FakeAgentRuntimeClient()
+    runtime.agent = AgentConfiguration(
+        id="agent-1",
+        tenant_id="tenant-1",
+        language="en",
+        voice_id="neutral-voice",
+        greeting="Welcome to Kaari Planters. How can I help you today?",
+    )
+    manager = VoiceSessionManager(
+        stt_provider=MockSTTProvider(),
+        tts_provider=MockTTSProvider(),
+        agent_runtime=runtime,  # type: ignore[arg-type]
+        session_store=InMemoryVoiceSessionStore(),
+    )
+    adapter = AsteriskAdapter(
+        base_url="http://asterisk:8088",
+        transport=PlayMediaFailingTransport(),  # type: ignore[arg-type]
+    )
+    service = TelephonyService(
+        provider=adapter,  # type: ignore[arg-type]
+        call_store=CopyOnReadCallStore(),
+        voice_manager=manager,
+        event_publisher=RecordingEventPublisher(),
+    )
+    receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    receiver.bind(("127.0.0.1", 0))
+    receiver.settimeout(5)
+    asterisk_port = receiver.getsockname()[1]
+
+    async def main() -> None:
+        try:
+            call = await service.create_inbound_call(
+                tenant_id="tenant-1",
+                agent_id="agent-1",
+                caller_number="+15550001",
+                destination_number="+15550002",
+                conversation_id="conversation-1",
+            )
+            adapter.bind_egress(
+                call, remote_host="127.0.0.1", remote_port=asterisk_port
+            )
+            await service.answer_channel(
+                tenant_id="tenant-1", call_id=call.call_id
+            )
+            await service.start_voice_session(
+                tenant_id="tenant-1", call_id=call.call_id
+            )
+        finally:
+            await adapter.close()
+
+    try:
+        run(main())
+        packet, _ = receiver.recvfrom(4096)
+    finally:
+        receiver.close()
+
+    # Greeting RTP reached the bound remote: version 2, PCMU payload type.
+    assert len(packet) > 12
+    assert packet[0] >> 6 == 2
+    assert (packet[1] & 0x7F) == 0

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from voice_service.models import VOICE_SESSIONS_COLLECTION, VoiceSession
+from voice_service.mongo_indexes import ensure_lookup_index
 
 
 VOICE_SESSION_LOOKUP_INDEX = "tenant_session"
@@ -17,6 +18,8 @@ class VoiceSessionCollection(Protocol):
     async def find_one(self, filter: dict[str, str]) -> dict[str, Any] | None: ...
 
     async def insert_one(self, document: dict[str, Any]) -> Any: ...
+
+    async def drop_index(self, name: str) -> Any: ...
 
     async def update_one(
         self, filter: dict[str, str], update: dict[str, Any], **kwargs: Any
@@ -48,11 +51,16 @@ class MongoVoiceSessionStore:
         self._collection = database[VOICE_SESSIONS_COLLECTION]
 
     async def ensure_indexes(self) -> None:
-        """Create the tenant-scoped lookup index used by the current flow."""
-        await self._collection.create_index(
-            [("tenant_id", 1), ("session_id", 1)],
+        """Create the tenant-scoped lookup index matching the stored shape.
+
+        Documents persist the identifier as ``_id`` (the ``session_id``
+        alias), so the unique index targets ``_id``; the legacy same-named
+        shape is migrated away when present.
+        """
+        await ensure_lookup_index(
+            self._collection,
             name=VOICE_SESSION_LOOKUP_INDEX,
-            unique=True,
+            keys=[("tenant_id", 1), ("_id", 1)],
         )
 
     async def create(self, session: VoiceSession) -> None:

@@ -47,4 +47,17 @@ def configure_logging(
         handler.setFormatter(JSONFormatter(service_name=service_name))
         logger.addHandler(handler)
 
+    # Namespaced event loggers (voice_service.*, agent_service.*, ...) emit
+    # through `logger.info(...)` and propagate to the root logger, which has
+    # no handler by default — without this, every structured lifecycle event
+    # is silently dropped in production. Attach the JSON handler to root once.
+    root_logger = logging.getLogger()
+    if not any(
+        isinstance(handler.formatter, JSONFormatter)
+        for handler in root_logger.handlers
+    ):
+        root_handler = logging.StreamHandler()
+        root_handler.setFormatter(JSONFormatter(service_name=service_name))
+        root_logger.addHandler(root_handler)
+
     return logger

@@ -1,6 +1,8 @@
 """Voice service application assembly."""
 
+import logging
 import os
+from collections.abc import AsyncIterator
 
 from fastapi import FastAPI
 
@@ -34,7 +36,11 @@ from voice_service.telephony.asterisk.adapter import AsteriskAdapter
 from voice_service.telephony.asterisk.ari_client import AriEventStream
 from voice_service.telephony.asterisk.live_call import AsteriskLiveCallRunner
 from voice_service.telephony.dev_routing import KaariDevRouter
-from voice_service.telephony.events import EventPublisher, LoggingEventPublisher
+from voice_service.telephony.events import (
+    TELEPHONY_EVENT_LOGGER,
+    EventPublisher,
+    LoggingEventPublisher,
+)
 from voice_service.telephony.routes import router as telephony_router
 from voice_service.telephony.service import TelephonyService
 from voice_service.telephony.store import CallStore, InMemoryCallStore
@@ -62,7 +68,6 @@ def create_voice_app(
     enable_live_calls: bool | None = None,
 ) -> FastAPI:
     """Create the service hosting the tenant-scoped voice session lifecycle."""
-    app = create_app(VOICE_SERVICE_NAME)
     if database is None and session_store is None:
         database = create_voice_database()
     if session_store is None:
@@ -83,8 +88,6 @@ def create_voice_app(
         agent_runtime=runtime,
         session_store=session_store,
     )
-    app.state.voice_session_manager = manager
-    app.include_router(voice_router)
 
     resolved_telephony_settings = (
         telephony_settings or load_telephony_settings()
@@ -98,11 +101,7 @@ def create_voice_app(
         voice_manager=manager,
         event_publisher=event_publisher or LoggingEventPublisher(),
     )
-    app.state.telephony_service = telephony
     router_instance = dev_inbound_router or KaariDevRouter.from_environment()
-    app.state.dev_inbound_router = router_instance
-    app.include_router(telephony_router)
-
     runner = live_call_runner or _build_live_call_runner(
         provider=provider,
         telephony=telephony,
@@ -110,33 +109,51 @@ def create_voice_app(
         settings=resolved_telephony_settings,
         enable_live_calls=enable_live_calls,
     )
-    app.state.live_call_runner = runner
-    if runner is not None:
 
-        @app.on_event("startup")
-        async def start_live_call_runner() -> None:
-            await runner.start()
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        """Own startup/shutdown sequencing explicitly (no on_event hooks).
 
-        @app.on_event("shutdown")
-        async def stop_live_call_runner() -> None:
-            await runner.stop()
-
-    if database is not None:
-
-        @app.on_event("startup")
-        async def initialize_voice_database() -> None:
+        Order matters: persistence first, then the live-call runner (which
+        needs TelephonyService ready); shutdown reverses it so in-flight
+        calls are hung up before connections close.
+        """
+        if database is not None:
             await database.initialize()
-
-        @app.on_event("shutdown")
-        async def close_voice_database() -> None:
-            await telephony.close()
+        if runner is not None:
+            await runner.start()
+            logging.getLogger(TELEPHONY_EVENT_LOGGER).info(
+                "ARI live-call runner started",
+                extra={
+                    "telephony_event": {
+                        "event": "ari_live_call_runner_started",
+                        "tenant_id": None,
+                        "agent_id": None,
+                        "call_id": None,
+                        "conversation_id": None,
+                        "session_id": None,
+                        "request_id": None,
+                    }
+                },
+            )
+        yield
+        if runner is not None:
+            await runner.stop()
+        await telephony.close()
+        if database is not None:
             await database.close()
-            await _close_provider(manager.stt_provider)
-            await _close_provider(manager.tts_provider)
-            close_runtime = getattr(runtime, "close", None)
-            if close_runtime is not None:
-                await close_runtime()
+        await _close_provider(manager.stt_provider)
+        await _close_provider(manager.tts_provider)
+        close_runtime = getattr(runtime, "close", None)
+        if close_runtime is not None:
+            await close_runtime()
 
+    app = create_app(VOICE_SERVICE_NAME, lifespan=lifespan)
+    app.state.voice_session_manager = manager
+    app.include_router(voice_router)
+    app.state.telephony_service = telephony
+    app.state.dev_inbound_router = router_instance
+    app.include_router(telephony_router)
+    app.state.live_call_runner = runner
     return app
 
 

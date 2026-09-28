@@ -4,6 +4,7 @@ The adapter owns all Asterisk-specific terminology (SIP endpoints, ARI
 channels, codecs). AgentRuntime and VoiceSessionManager never see it.
 """
 
+import logging
 import uuid
 from datetime import UTC, datetime
 
@@ -16,6 +17,10 @@ from voice_service.telephony.asterisk.transport import (
     HttpAsteriskTransport,
 )
 from voice_service.telephony.models import TelephonyCall
+from voice_service.telephony.observability import (
+    TELEPHONY_EVENT_LOGGER,
+    log_telephony_event,
+)
 from voice_service.telephony.provider import (
     TelephonyProviderError,
     TelephonyTransferUnavailableError,
@@ -39,6 +44,7 @@ class AsteriskAdapter:
         transport: AsteriskTransport | None = None,
         media_ingress: RtpMediaIngress | None = None,
         media_egress: RtpEgressSender | None = None,
+        logger: logging.Logger | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._username = username
@@ -49,6 +55,12 @@ class AsteriskAdapter:
         self._channels: dict[str, str] = {}
         self._media_ingress = media_ingress
         self._media_egress = media_egress
+        # Egress destinations keyed by ARI channel id, owned by the adapter.
+        # Call metadata is re-read from the store on every turn (fresh objects
+        # under MongoDB), so routing state kept only on the call object would
+        # be lost; see bind_egress.
+        self._egress_remotes: dict[str, tuple[str, int]] = {}
+        self._logger = logger or logging.getLogger(TELEPHONY_EVENT_LOGGER)
 
     @property
     def transport(self) -> AsteriskTransport:
@@ -206,38 +218,98 @@ class AsteriskAdapter:
         the Asterisk external-media address; otherwise audio falls back to
         the ARI play-media foundation.
         """
-        egress_remote = call.metadata.get("rtp_egress_remote")
-        if egress_remote and self._media_egress is not None:
-            host, _, port = str(egress_remote).rpartition(":")
+        channel_id = self._channel_for(call)
+        remote = self._egress_remotes.get(channel_id)
+        if remote is None:
+            remote = self._adopt_egress_marker(call, channel_id)
+        if remote is not None and self._media_egress is not None:
             try:
-                await self._media_egress.send(
-                    self._channel_for(call),
-                    (host, int(port)),
-                    audio,
-                )
+                sent = await self._media_egress.send(channel_id, remote, audio)
             except Exception as exc:
                 raise TelephonyProviderError(
                     "Asterisk could not stream response audio."
                 ) from exc
+            log_telephony_event(
+                self._logger,
+                "egress_audio_sent",
+                tenant_id=call.tenant_id,
+                agent_id=call.agent_id,
+                call_id=call.call_id,
+                conversation_id=call.conversation_id,
+                request_id=request_id,
+                egress_host=remote[0],
+                egress_port=remote[1],
+                rtp_packets=sent,
+                audio_format=audio.format,
+                audio_sample_rate=audio.sample_rate,
+                audio_channels=audio.channels,
+                audio_bytes=len(audio.data),
+                message=(
+                    f"egress_audio_sent egress_host={remote[0]} "
+                    f"egress_port={remote[1]} rtp_packets={sent} "
+                    f"audio_format={audio.format} "
+                    f"audio_sample_rate={audio.sample_rate} "
+                    f"audio_channels={audio.channels} "
+                    f"audio_bytes={len(audio.data)}"
+                ),
+            )
             return
-        channel_id = self._channel_for(call)
         media = encode_ulaw(audio)
         try:
             await self._transport.play_media(channel_id, media)
         except Exception as exc:
             raise TelephonyProviderError("Asterisk could not play response audio.") from exc
 
+    def _adopt_egress_marker(
+        self, call: TelephonyCall, channel_id: str
+    ) -> tuple[str, int] | None:
+        """Adopt a metadata egress marker into adapter-owned routing state.
+
+        Accepts ``"host:port"`` markers written by older flows so they keep
+        working; malformed markers are ignored and fall back to play-media.
+        """
+        marker = call.metadata.get("rtp_egress_remote")
+        if not marker:
+            return None
+        host, _, port = str(marker).rpartition(":")
+        try:
+            remote = (host, int(port))
+        except ValueError:
+            return None
+        if not host:
+            return None
+        self._egress_remotes[channel_id] = remote
+        return remote
+
     def bind_egress(self, call: TelephonyCall, *, remote_host: str, remote_port: int) -> str:
         """Bind RTP playout for a call to Asterisk's media address.
 
         The remote address is learned from the first inbound RTP datagram
-        (symmetric RTP). Returns the ``"host:port"`` marker stored on the
-        call, which routes later :meth:`send_audio` calls through egress.
+        (symmetric RTP). The destination is recorded adapter-side keyed by
+        ARI channel id, because call objects are re-read from the store on
+        every turn and in-memory metadata mutations do not survive a
+        MongoDB round trip. The ``"host:port"`` marker is still stored on
+        the call metadata for diagnostics. Returns the marker.
         """
         if self._media_egress is None:
             self._media_egress = RtpEgressSender()
         remote = f"{remote_host}:{remote_port}"
         call.metadata["rtp_egress_remote"] = remote
+        self._egress_remotes[self._channel_for(call)] = (remote_host, remote_port)
+        log_telephony_event(
+            self._logger,
+            "egress_remote_learned",
+            tenant_id=call.tenant_id,
+            agent_id=call.agent_id,
+            call_id=call.call_id,
+            conversation_id=call.conversation_id,
+            egress_host=remote_host,
+            egress_port=remote_port,
+            message=(
+                "egress_remote_learned "
+                f"egress_host={remote_host} egress_port={remote_port}"
+            ),
+        )
         return remote
 
     async def hangup(
@@ -254,6 +326,7 @@ class AsteriskAdapter:
         call.ended_at = now
         self.media_ingress.release(channel_id)
         self._channels.pop(call.call_id, None)
+        self._egress_remotes.pop(channel_id, None)
         if self._media_egress is not None:
             self._media_egress.release(channel_id)
         return call

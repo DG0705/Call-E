@@ -1,6 +1,6 @@
 """Reusable FastAPI application support."""
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -36,11 +36,21 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def create_app(service_name: str) -> FastAPI:
-    """Create a consistent FastAPI service shell."""
+Lifespan = Callable[[FastAPI], AsyncIterator[None]]
+
+
+def create_app(
+    service_name: str, *, lifespan: Lifespan | None = None
+) -> FastAPI:
+    """Create a consistent FastAPI service shell.
+
+    An optional lifespan context manager owns startup/shutdown sequencing;
+    when omitted the app has no lifespan hooks (deprecated on_event handlers
+    are not used anywhere, since they are unreliable on modern Starlette).
+    """
     settings = load_settings(default_service_name=service_name)
     configure_logging(service_name=settings.service_name, level=settings.log_level)
-    app = FastAPI(title=settings.service_name)
+    app = FastAPI(title=settings.service_name, lifespan=lifespan)
     app.add_middleware(RequestIDMiddleware)
 
     @app.get(

@@ -361,7 +361,7 @@ def test_mongo_session_store_indexes_create_get_save() -> None:
     )
 
     assert database.sessions.indexes == [
-        ([("tenant_id", 1), ("session_id", 1)], {"name": VOICE_SESSION_LOOKUP_INDEX, "unique": True})
+        ([("tenant_id", 1), ("_id", 1)], {"name": VOICE_SESSION_LOOKUP_INDEX, "unique": True})
     ]
     assert loaded is not None
     assert loaded.status == "active"

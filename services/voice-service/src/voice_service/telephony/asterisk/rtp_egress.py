@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import random
 import struct
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from voice_service.audio import AudioChunk
@@ -25,6 +26,23 @@ _RTP_VERSION = 2
 _PCMU_PAYLOAD_TYPE = 0
 _FRAME_BYTES = 160
 _TIMESTAMP_STEP = 160
+# Real-time cadence of one 160-byte mu-law frame: Asterisk silently discards
+# back-to-back bursts, so each datagram targets an absolute 20 ms deadline.
+_FRAME_SECONDS = 0.020
+
+#: Monotonic clock returning seconds (defaults to the event-loop clock so
+#: ``asyncio.sleep`` delays align with it). Injectable for deterministic tests.
+Clock = Callable[[], float]
+#: Async sleep used between paced datagrams. Injectable for tests.
+Sleeper = Callable[[float], Awaitable[None]]
+
+
+def _loop_clock() -> float:
+    return asyncio.get_running_loop().time()
+
+
+async def _loop_sleep(delay: float) -> None:
+    await asyncio.sleep(delay)
 
 
 @dataclass
@@ -67,6 +85,8 @@ class RtpEgressSender:
 
     _transport: asyncio.DatagramTransport | None = None
     _packetizers: dict[str, RtpPacketizer] = field(default_factory=dict)
+    _clock: Clock | None = None
+    _sleep: Sleeper | None = None
 
     async def ensure_started(self) -> None:
         """Open the shared UDP socket (ephemeral local port)."""
@@ -93,12 +113,26 @@ class RtpEgressSender:
     async def send(
         self, channel_id: str, remote: tuple[str, int], chunk: AudioChunk
     ) -> int:
-        """Packetize one PCM chunk and send every datagram. Returns count."""
+        """Packetize one PCM chunk and send datagrams at 20 ms cadence.
+
+        Returns the datagram count. Each datagram targets an absolute
+        monotonic deadline (``start + index * 20 ms``) so transmission
+        follows real-time RTP cadence without accumulating drift; only the
+        remaining time before each deadline is slept, and overdue deadlines
+        send immediately. Packetization, headers, destination, and the shared
+        socket are unchanged.
+        """
         await self.ensure_started()
         assert self._transport is not None
         packetizer = self.register(channel_id)
         datagrams = packetizer.packetize(chunk)
-        for datagram in datagrams:
+        clock = self._clock or _loop_clock
+        sleep = self._sleep or _loop_sleep
+        start = clock()
+        for index, datagram in enumerate(datagrams):
+            delay = start + index * _FRAME_SECONDS - clock()
+            if delay > 0:
+                await sleep(delay)
             self._transport.sendto(datagram, remote)
         return len(datagrams)
 

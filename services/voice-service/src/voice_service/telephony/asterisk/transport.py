@@ -171,7 +171,7 @@ class HttpAsteriskTransport:
             f"{self._base_url}/ari/channels/externalMedia",
             params={
                 "app": app,
-                "externalHost": external_host,
+                "external_host": external_host,
                 "format": media_format,
             },
             auth=self._auth,
