@@ -34,7 +34,11 @@ from voice_service.telephony.events import TELEPHONY_EVENT_LOGGER
 from voice_service.telephony.observability import log_telephony_event
 from voice_service.telephony.service import TelephonyService
 from voice_service.telephony.models import TelephonyCall
-from voice_service.utterance import UtteranceAccumulator, UtteranceConfig
+from voice_service.utterance import (
+    UtteranceAccumulator,
+    UtteranceConfig,
+    frame_rms_energy,
+)
 
 _HANGUP_EVENT_TYPES = frozenset(
     {"StasisEnd", "ChannelHangupRequest", "ChannelDestroyed"}
@@ -92,6 +96,15 @@ class _LiveCallState:
     stop_turns: asyncio.Event | None = None
     answered: bool = False
     ended: bool = False
+    pending_utterance: AudioChunk | None = None
+    consecutive_failures: int = 0
+    turn_count: int = 0
+
+
+#: Runaway guard only: isolated turn errors never end a call (the caller can
+#: always speak again or hang up themselves). Cleanup happens after this many
+#: consecutive failures, which normal calls never approach.
+_MAX_CONSECUTIVE_TURN_FAILURES = 20
 
 
 class AsteriskLiveCallRunner:
@@ -362,32 +375,106 @@ class AsteriskLiveCallRunner:
         )
 
     async def _turn_loop(self, channel_id: str) -> None:
-        """Accumulate utterances and run voice turns until the call ends."""
+        """Accumulate utterances and run voice turns until the call ends.
+
+        A failed turn never ends the call by itself: the error is logged and
+        the loop continues so the caller can speak again. Only consecutive
+        failures (a persistently broken session or provider) or a hangup
+        event tears the call down.
+        """
         state = self._states.get(channel_id)
         if state is None or state.stop_turns is None:
             return
         try:
             while not state.stop_turns.is_set():
-                if not await self._run_one_turn(state):
-                    await asyncio.sleep(self._poll_interval)
+                try:
+                    if not await self._run_one_turn_with_barge_watch(state):
+                        await asyncio.sleep(self._poll_interval)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    state.consecutive_failures += 1
+                    self._log_call_event(
+                        "TURN_ERROR", state.call, None, None, None,
+                        state.request_id, turn=state.turn_count,
+                        error=str(type(exc).__name__),
+                        consecutive_failures=state.consecutive_failures,
+                        message=(
+                            f"TURN_ERROR turn={state.turn_count} "
+                            f"error={type(exc).__name__} action=continue_listening"
+                        ),
+                    )
+                    self._log_call_event(
+                        "live_turn_failed", state.call, None, None, None,
+                        state.request_id, error=str(type(exc).__name__),
+                        consecutive_failures=state.consecutive_failures,
+                    )
+                    if state.consecutive_failures >= _MAX_CONSECUTIVE_TURN_FAILURES:
+                        break
         except asyncio.CancelledError:
             raise
-        except Exception as exc:
-            self._log_call_event(
-                "live_turn_failed", state.call, None, None, None,
-                state.request_id, error=str(type(exc).__name__),
-            )
         finally:
             await self._cleanup(channel_id, reason="turn_loop_exited")
+
+    async def _run_one_turn_with_barge_watch(self, state: _LiveCallState) -> bool:
+        """Run one turn while watching inbound audio for caller barge-in.
+
+        The turn runs as a task; meanwhile inbound frames are drained into the
+        shared accumulator (no speech is lost) and speech energy triggers an
+        audio interrupt so stale TTS stops and the new utterance is handled
+        next. Returns the turn result.
+        """
+        turn_task = asyncio.create_task(self._run_one_turn(state))
+        try:
+            while not turn_task.done():
+                await asyncio.sleep(self._poll_interval)
+                if state.stop_turns is not None and state.stop_turns.is_set():
+                    break
+                if self._drain_watching_for_barge(state):
+                    await self._telephony.interrupt_audio(
+                        tenant_id=state.call.tenant_id,
+                        call_id=state.call.call_id,
+                        request_id=state.request_id,
+                    )
+        except asyncio.CancelledError:
+            turn_task.cancel()
+            raise
+        return await turn_task
+
+    def _drain_watching_for_barge(self, state: _LiveCallState) -> bool:
+        """Drain newly arrived frames, accumulating speech; True on barge-in."""
+        channel_id = state.call.metadata.get("channel_id")
+        speech = False
+        for _ in range(25):
+            frame = self._ingress.receive(str(channel_id))
+            if frame is None:
+                break
+            try:
+                if frame_rms_energy(frame) >= self._utterance_config.silence_rms_threshold:
+                    speech = True
+            except ValueError:
+                pass
+            completed = state.accumulator.feed(frame)
+            if completed is not None and state.pending_utterance is None:
+                state.pending_utterance = completed
+        return speech
 
     async def _run_one_turn(self, state: _LiveCallState) -> bool:
         """Run at most one voice turn for completed utterances.
 
         Returns True when a turn ran (or failed and ended the loop).
+        A failed turn is counted but never ends the call outright; the loop
+        continues so the caller can speak again.
         """
         utterance = self._collect_utterance(state)
         if utterance is None:
             return False
+        state.turn_count += 1
+        self._log_call_event(
+            "TURN_START", state.call, None, None, None,
+            state.request_id, turn=state.turn_count,
+            message=f"TURN_START turn={state.turn_count}",
+        )
         try:
             await self._telephony.process_audio(
                 tenant_id=state.call.tenant_id,
@@ -396,16 +483,42 @@ class AsteriskLiveCallRunner:
                 request_id=state.request_id,
             )
         except PlatformError as exc:
+            state.consecutive_failures += 1
+            self._log_call_event(
+                "TURN_ERROR", state.call, None, None, None,
+                state.request_id, turn=state.turn_count,
+                error_code=exc.code,
+                consecutive_failures=state.consecutive_failures,
+                message=(
+                    f"TURN_ERROR turn={state.turn_count} "
+                    f"error_code={exc.code} action=continue_listening"
+                ),
+            )
             self._log_call_event(
                 "live_turn_failed", state.call, None, None, None,
                 state.request_id, error_code=exc.code,
+                consecutive_failures=state.consecutive_failures,
             )
-            await self._cleanup(state.call.metadata.get("channel_id") or "", reason="turn_failed")
+            if state.consecutive_failures >= _MAX_CONSECUTIVE_TURN_FAILURES:
+                await self._cleanup(state.call.metadata.get("channel_id") or "", reason="turn_failed")
             return True
+        state.consecutive_failures = 0
+        self._log_call_event(
+            "TURN_COMPLETED", state.call, None, None, None,
+            state.request_id, turn=state.turn_count,
+            message=f"TURN_COMPLETED turn={state.turn_count}",
+        )
         return True
 
     def _collect_utterance(self, state: _LiveCallState) -> AudioChunk | None:
-        """Drain queued frames into at most one completed utterance."""
+        """Drain queued frames into at most one completed utterance.
+
+        Utterances completed by the barge-in watcher during the previous turn
+        are returned first so interrupted speech is never lost.
+        """
+        pending, state.pending_utterance = state.pending_utterance, None
+        if pending is not None:
+            return pending
         channel_id = state.call.metadata.get("channel_id")
         utterance: AudioChunk | None = None
         for _ in range(100):

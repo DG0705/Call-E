@@ -27,6 +27,30 @@ class TTSSettings:
     elevenlabs_model_id: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class TurnSettings:
+    """Bounded per-turn durations (seconds) for the live-call pipeline.
+
+    These are safety bounds against silently hung turns, not latency targets:
+    exceeding any bound fails that stage fast with a spoken fallback instead
+    of leaving the caller in silence.
+    """
+
+    turn_timeout: float = 30.0
+    stt_timeout: float = 8.0
+    runtime_timeout: float = 20.0
+    tts_timeout: float = 15.0
+
+
+@dataclass(frozen=True, slots=True)
+class UtteranceSettings:
+    """Tunable end-of-speech detection for conversational phone audio."""
+
+    end_silence_ms: int = 800
+    min_utterance_ms: int = 400
+    max_utterance_ms: int = 15_000
+
+
 def load_stt_settings() -> STTSettings:
     """Load speech-to-text provider settings without supplying credentials."""
     return STTSettings(
@@ -48,6 +72,41 @@ def load_tts_settings() -> TTSSettings:
         elevenlabs_voice_id=_optional_environment_value("ELEVENLABS_VOICE_ID"),
         elevenlabs_model_id=_optional_environment_value("ELEVENLABS_MODEL_ID"),
     )
+
+
+def load_turn_settings() -> TurnSettings:
+    """Load bounded per-turn durations from the service environment."""
+    return TurnSettings(
+        turn_timeout=_positive_float("VOICE_TURN_TIMEOUT_SECONDS", 30.0),
+        stt_timeout=_positive_float("VOICE_STT_TIMEOUT_SECONDS", 8.0),
+        runtime_timeout=_positive_float("VOICE_RUNTIME_TIMEOUT_SECONDS", 20.0),
+        tts_timeout=_positive_float("VOICE_TTS_TIMEOUT_SECONDS", 15.0),
+    )
+
+
+def load_utterance_settings() -> UtteranceSettings:
+    """Load end-of-speech detection tuning from the service environment."""
+    return UtteranceSettings(
+        end_silence_ms=_positive_int("VOICE_END_SILENCE_MS", 800),
+        min_utterance_ms=_positive_int("VOICE_MIN_UTTERANCE_MS", 400),
+        max_utterance_ms=_positive_int("VOICE_MAX_UTTERANCE_MS", 15_000),
+    )
+
+
+def _positive_float(name: str, default: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _positive_int(name: str, default: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+    return value if value > 0 else default
 
 
 def _optional_environment_value(name: str) -> str | None:

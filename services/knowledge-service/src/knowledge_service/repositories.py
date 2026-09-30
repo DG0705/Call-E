@@ -77,6 +77,13 @@ class KnowledgeDocumentRepository:
             KnowledgeDocument.model_validate(document) if document is not None else None
         )
 
+    async def save(self, document: KnowledgeDocument) -> None:
+        """Persist full document state (status, chunks, error) in place."""
+        await self._collection.update_one(
+            {"_id": document.id, "tenant_id": document.tenant_id},
+            {"$set": document.model_dump(by_alias=True)},
+        )
+
     async def list_by_tenant(self, *, tenant_id: str) -> list[KnowledgeDocument]:
         documents = await self._collection.find({"tenant_id": tenant_id})
         return [KnowledgeDocument.model_validate(document) for document in documents]

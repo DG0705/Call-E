@@ -4,6 +4,7 @@ import os
 
 from pymongo import AsyncMongoClient
 
+from voice_service.greeting_cache import MongoGreetingAudioStore
 from voice_service.session_store import MongoVoiceSessionStore
 from voice_service.telephony.store import MongoCallStore
 
@@ -19,6 +20,7 @@ class VoiceDatabase:
         self._client = AsyncMongoClient(mongodb_url, serverSelectionTimeoutMS=1_000)
         self.session_store = MongoVoiceSessionStore(self._client[database_name])
         self.call_store = MongoCallStore(self._client[database_name])
+        self.greeting_store = MongoGreetingAudioStore(self._client[database_name])
 
     async def initialize(self) -> None:
         """Create indexes for persistence owned by the voice service."""

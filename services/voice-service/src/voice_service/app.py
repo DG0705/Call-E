@@ -15,8 +15,11 @@ from voice_service.agent_runtime import (
 from voice_service.config import (
     STTSettings,
     TTSSettings,
+    TurnSettings,
     load_stt_settings,
     load_tts_settings,
+    load_turn_settings,
+    load_utterance_settings,
 )
 from voice_service.database import VoiceDatabase, create_voice_database
 from voice_service.factory import STTProviderFactory, TTSProviderFactory
@@ -45,6 +48,7 @@ from voice_service.telephony.routes import router as telephony_router
 from voice_service.telephony.service import TelephonyService
 from voice_service.telephony.store import CallStore, InMemoryCallStore
 from voice_service.tts import TTSProvider
+from voice_service.utterance import UtteranceConfig
 
 
 VOICE_SERVICE_NAME = "voice-service"
@@ -58,6 +62,7 @@ def create_voice_app(
     tts_provider: TTSProvider | None = None,
     stt_settings: STTSettings | None = None,
     tts_settings: TTSSettings | None = None,
+    turn_settings: TurnSettings | None = None,
     agent_runtime: AgentRuntimeClient | None = None,
     telephony_provider: TelephonyProvider | None = None,
     telephony_settings: TelephonySettings | None = None,
@@ -82,11 +87,17 @@ def create_voice_app(
             call_store = InMemoryCallStore()
 
     runtime = agent_runtime or create_agent_runtime_http_client()
+    resolved_turn_settings = turn_settings or load_turn_settings()
+    greeting_store = None
+    if database is not None:
+        greeting_store = getattr(database, "greeting_store", None)
     manager = VoiceSessionManager(
         stt_provider=stt_provider or STTProviderFactory.create(stt_settings or load_stt_settings()),
         tts_provider=tts_provider or TTSProviderFactory.create(tts_settings or load_tts_settings()),
         agent_runtime=runtime,
         session_store=session_store,
+        turn_settings=resolved_turn_settings,
+        greeting_store=greeting_store,
     )
 
     resolved_telephony_settings = (
@@ -100,6 +111,7 @@ def create_voice_app(
         call_store=call_store,
         voice_manager=manager,
         event_publisher=event_publisher or LoggingEventPublisher(),
+        turn_settings=resolved_turn_settings,
     )
     router_instance = dev_inbound_router or KaariDevRouter.from_environment()
     runner = live_call_runner or _build_live_call_runner(
@@ -190,6 +202,7 @@ def _build_live_call_runner(
     if not enabled or not settings.asterisk_url:
         return None
     rtp_settings = load_rtp_settings()
+    utterance_settings = load_utterance_settings()
     stream = AriEventStream(
         base_url=settings.asterisk_url,
         app=live_settings.ari_app,
@@ -205,4 +218,9 @@ def _build_live_call_runner(
         rtp_port_start=rtp_settings.port_start,
         rtp_port_count=rtp_settings.port_count,
         first_packet_timeout_seconds=rtp_settings.first_packet_timeout_seconds,
+        utterance_config=UtteranceConfig(
+            end_silence_ms=utterance_settings.end_silence_ms,
+            min_utterance_ms=utterance_settings.min_utterance_ms,
+            max_utterance_ms=utterance_settings.max_utterance_ms,
+        ),
     )

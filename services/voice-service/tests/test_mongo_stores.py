@@ -24,6 +24,28 @@ class FakeDuplicateKey(Exception):
     """Stand-in for a unique-index duplicate-key violation."""
 
 
+class FakeMongoCursor:
+    def __init__(self, documents: list[dict[str, object]]) -> None:
+        self._documents = documents
+
+    def sort(self, key: str, direction: int) -> "FakeMongoCursor":
+        self._documents = sorted(
+            self._documents,
+            key=lambda document: document.get(key),  # type: ignore[return-value]
+            reverse=direction < 0,
+        )
+        return self
+
+    def limit(self, count: int) -> "FakeMongoCursor":
+        self._documents = self._documents[:count]
+        return self
+
+    async def to_list(self, length: int | None) -> list[dict[str, object]]:
+        if length is None:
+            return list(self._documents)
+        return list(self._documents[:length])
+
+
 class FakeMongoCollection:
     """In-memory collection enforcing unique indexes like MongoDB does."""
 
@@ -55,6 +77,15 @@ class FakeMongoCollection:
                 if all(document.get(key) == value for key, value in filter.items())
             ),
             None,
+        )
+
+    def find(self, filter: dict[str, object]) -> FakeMongoCursor:
+        return FakeMongoCursor(
+            [
+                document
+                for document in self.documents
+                if all(document.get(key) == value for key, value in filter.items())
+            ]
         )
 
     async def insert_one(self, document: dict[str, object]) -> None:
@@ -247,3 +278,45 @@ def test_same_tenant_persists_multiple_sessions() -> None:
     assert run(store.get(tenant_id="kaari-planters", session_id="session-1")) is not None
     assert run(store.get(tenant_id="kaari-planters", session_id="session-2")) is not None
     assert "session_id" not in collection.documents[0]
+
+
+def test_mongo_call_store_lists_tenant_calls_newest_first() -> None:
+    from voice_service.telephony.store import MongoCallStore
+
+    collection = FakeMongoCollection()
+    store = MongoCallStore(FakeCallDatabase(collection))
+
+    run(store.create(call_record("call-1")))
+    run(store.create(call_record("call-2")))
+    run(store.create(call_record("call-3", tenant_id="other-tenant")))
+
+    listed = run(store.list_recent(tenant_id="kaari-planters"))
+
+    assert [call.call_id for call in listed] == ["call-2", "call-1"]
+
+
+def test_mongo_call_store_list_respects_limit() -> None:
+    from voice_service.telephony.store import MongoCallStore
+
+    collection = FakeMongoCollection()
+    store = MongoCallStore(FakeCallDatabase(collection))
+
+    run(store.create(call_record("call-1")))
+    run(store.create(call_record("call-2")))
+
+    listed = run(store.list_recent(tenant_id="kaari-planters", limit=1))
+
+    assert [call.call_id for call in listed] == ["call-2"]
+
+
+def test_inmemory_call_store_lists_tenant_calls_newest_first() -> None:
+    from voice_service.telephony.store import InMemoryCallStore
+
+    store = InMemoryCallStore()
+    run(store.create(call_record("call-1")))
+    run(store.create(call_record("call-2")))
+    run(store.create(call_record("call-3", tenant_id="other-tenant")))
+
+    listed = run(store.list_recent(tenant_id="kaari-planters"))
+
+    assert [call.call_id for call in listed] == ["call-2", "call-1"]

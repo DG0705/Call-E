@@ -11,10 +11,18 @@ class CollectionNamesDatabase(Protocol):
     async def list_collection_names(self, **kwargs: Any) -> list[str]: ...
 
 
+class AgentCursor(Protocol):
+    """Async cursor surface used to list agent documents."""
+
+    async def to_list(self, length: int | None) -> list[dict[str, Any]]: ...
+
+
 class AgentCollection(Protocol):
     """Read-only subset of a Mongo collection used for agents."""
 
     async def find_one(self, filter: dict[str, str]) -> dict[str, Any] | None: ...
+
+    def find(self, filter: dict[str, object]) -> AgentCursor: ...
 
     async def replace_one(
         self, filter: dict[str, str], document: dict[str, Any], **kwargs: Any
@@ -93,6 +101,14 @@ class AgentRepository(CollectionRepository):
         """Load one agent configuration within its tenant boundary."""
         document = await self._agents.find_one({"_id": agent_id, "tenant_id": tenant_id})
         return Agent.model_validate(document) if document is not None else None
+
+    async def list_by_tenant(
+        self, *, tenant_id: str, limit: int = 100
+    ) -> list[Agent]:
+        """List agent configurations visible to one tenant, oldest first."""
+        cursor = self._agents.find({"tenant_id": tenant_id})
+        documents = await cursor.to_list(length=max(1, limit))
+        return [Agent.model_validate(document) for document in documents]
 
     async def upsert(self, agent: Agent) -> None:
         """Insert or replace an agent document, preserving its identifier.

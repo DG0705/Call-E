@@ -30,6 +30,10 @@ _TIMESTAMP_STEP = 160
 # back-to-back bursts, so each datagram targets an absolute 20 ms deadline.
 _FRAME_SECONDS = 0.020
 
+
+class RtpEgressAborted(Exception):
+    """Raised when playout is aborted mid-stream (caller barge-in)."""
+
 #: Monotonic clock returning seconds (defaults to the event-loop clock so
 #: ``asyncio.sleep`` delays align with it). Injectable for deterministic tests.
 Clock = Callable[[], float]
@@ -88,6 +92,7 @@ class RtpEgressSender:
     _clock: Clock | None = None
     _sleep: Sleeper | None = None
     _stream_deadlines: dict[str, float] = field(default_factory=dict)
+    _last_sent: dict[str, float] = field(default_factory=dict)
 
     async def ensure_started(self) -> None:
         """Open the shared UDP socket (ephemeral local port)."""
@@ -112,7 +117,8 @@ class RtpEgressSender:
         return packetizer
 
     async def send(
-        self, channel_id: str, remote: tuple[str, int], chunk: AudioChunk
+        self, channel_id: str, remote: tuple[str, int], chunk: AudioChunk,
+        abort: asyncio.Event | None = None,
     ) -> int:
         """Packetize one PCM chunk and send datagrams at 20 ms cadence.
 
@@ -121,7 +127,8 @@ class RtpEgressSender:
         follows real-time RTP cadence without accumulating drift; only the
         remaining time before each deadline is slept, and overdue deadlines
         send immediately. Packetization, headers, destination, and the shared
-        socket are unchanged.
+        socket are unchanged. When ``abort`` is set, playout stops at the
+        next frame boundary with :class:`RtpEgressAborted`.
         """
         await self.ensure_started()
         assert self._transport is not None
@@ -131,14 +138,18 @@ class RtpEgressSender:
         sleep = self._sleep or _loop_sleep
         start = clock()
         for index, datagram in enumerate(datagrams):
+            if abort is not None and abort.is_set():
+                raise RtpEgressAborted(channel_id)
             delay = start + index * _FRAME_SECONDS - clock()
             if delay > 0:
                 await sleep(delay)
             self._transport.sendto(datagram, remote)
+            self._last_sent[channel_id] = clock()
         return len(datagrams)
 
     async def send_frame(
-        self, channel_id: str, remote: tuple[str, int], frame: AudioChunk
+        self, channel_id: str, remote: tuple[str, int], frame: AudioChunk,
+        abort: asyncio.Event | None = None,
     ) -> int:
         """Packetize one 20 ms PCM frame and send its datagram on cadence.
 
@@ -147,8 +158,11 @@ class RtpEgressSender:
         frames arriving faster than real time are paced out — never
         firehosed — while overdue deadlines send immediately to catch up.
         Packetization, headers, destination, and the shared socket match
-        :meth:`send`.
+        :meth:`send`. When ``abort`` is set, raises :class:`RtpEgressAborted`
+        before sending.
         """
+        if abort is not None and abort.is_set():
+            raise RtpEgressAborted(channel_id)
         await self.ensure_started()
         assert self._transport is not None
         packetizer = self.register(channel_id)
@@ -164,9 +178,23 @@ class RtpEgressSender:
             if delay > 0:
                 await sleep(delay)
         self._stream_deadlines[channel_id] = deadline + _FRAME_SECONDS
+        if abort is not None and abort.is_set():
+            raise RtpEgressAborted(channel_id)
         for datagram in datagrams:
             self._transport.sendto(datagram, remote)
+            clock = self._clock or _loop_clock
+            self._last_sent[channel_id] = clock()
         return len(datagrams)
+
+    def is_playing(self, channel_id: str) -> bool:
+        """Report whether RTP left for a channel within the barge window.
+
+        The single source of truth for "audio is currently audible": the
+        runner gates barge-in interrupts on this, so speech never cancels a
+        reply that has not started (or has already finished) playing.
+        """
+        clock = self._clock or _loop_clock
+        return clock() - self._last_sent.get(channel_id, 0.0) < 0.5
 
     def pending_packets(self, channel_id: str) -> RtpPacketizer | None:
         """Return per-call packetizer state, if registered."""
@@ -176,6 +204,7 @@ class RtpEgressSender:
         """Drop per-call packetizer state for a finished call."""
         self._packetizers.pop(channel_id, None)
         self._stream_deadlines.pop(channel_id, None)
+        self._last_sent.pop(channel_id, None)
 
     def close(self) -> None:
         """Close the shared UDP socket."""

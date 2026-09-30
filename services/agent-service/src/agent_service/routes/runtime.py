@@ -26,6 +26,7 @@ class RuntimeTestResponse(BaseModel):
     response: str
     provider: str
     model: str
+    tool_iterations: int = 0
     request_id: str | None = None
 
 
@@ -71,6 +72,7 @@ async def test_runtime(
         response=result.text,
         provider=result.provider_name,
         model=result.model_name,
+        tool_iterations=len(result.tool_execution_history),
         request_id=getattr(request.state, "request_id", None),
     )
 
@@ -100,5 +102,6 @@ async def test_runtime_tools(
         response=result.text,
         provider=result.provider_name,
         model=result.model_name,
+        tool_iterations=len(result.tool_execution_history),
         request_id=getattr(request.state, "request_id", None),
     )

@@ -5,7 +5,8 @@ from typing import Any
 
 from pymongo import AsyncMongoClient
 
-from knowledge_service.embeddings import EmbeddingProvider, MockEmbeddingProvider
+from knowledge_service.embeddings import EmbeddingProvider, create_embedding_provider
+from knowledge_service.files import FileStorage, LocalFileStorage
 from knowledge_service.models import (
     KNOWLEDGE_CHUNKS_COLLECTION,
     KNOWLEDGE_DOCUMENTS_COLLECTION,
@@ -27,6 +28,7 @@ from knowledge_service.services import (
     KnowledgeIngestionService,
     KnowledgeSearchService,
     KnowledgeSourceService,
+    KnowledgeUploadService,
 )
 from knowledge_service.storage import CollectionVectorRepository
 
@@ -34,6 +36,14 @@ from knowledge_service.storage import CollectionVectorRepository
 DEFAULT_KNOWLEDGE_DATABASE = "call_e_knowledge"
 MONGODB_URL_ENV_VAR = "MONGODB_URL"
 KNOWLEDGE_DATABASE_ENV_VAR = "KNOWLEDGE_DATABASE_NAME"
+KNOWLEDGE_STORAGE_DIR_ENV_VAR = "KNOWLEDGE_STORAGE_DIR"
+KNOWLEDGE_MAX_FILE_BYTES_ENV_VAR = "KNOWLEDGE_MAX_FILE_BYTES"
+DEFAULT_STORAGE_DIR = "/data/knowledge_uploads"
+DEFAULT_MAX_FILE_BYTES = 10_000_000
+KNOWLEDGE_STORAGE_DIR_ENV_VAR = "KNOWLEDGE_STORAGE_DIR"
+KNOWLEDGE_MAX_FILE_BYTES_ENV_VAR = "KNOWLEDGE_MAX_FILE_BYTES"
+DEFAULT_STORAGE_DIR = "/data/knowledge_uploads"
+DEFAULT_MAX_FILE_BYTES = 10_000_000
 
 SOURCE_TENANT_INDEX = "source_tenant"
 DOCUMENT_TENANT_SOURCE_INDEX = "document_tenant_source"
@@ -187,9 +197,11 @@ class KnowledgeDatabase:
         collections: KnowledgeCollectionDatabase,
         embedder: EmbeddingProvider | None = None,
         agent_sources: AgentKnowledgeResolver | None = None,
+        file_storage: FileStorage | None = None,
+        max_file_bytes: int | None = None,
     ) -> None:
         self._collections = collections
-        self._embedder = embedder or MockEmbeddingProvider()
+        self._embedder = embedder or create_embedding_provider()
         self._agent_sources = agent_sources or MappingAgentKnowledgeResolver()
 
         self.source_service = KnowledgeSourceService(
@@ -211,6 +223,27 @@ class KnowledgeDatabase:
             repository=chunks,
         )
         self.search_service = KnowledgeSearchService(self.retriever)
+        storage_root = os.getenv(KNOWLEDGE_STORAGE_DIR_ENV_VAR, DEFAULT_STORAGE_DIR)
+        try:
+            max_bytes = int(
+                os.getenv(
+                    KNOWLEDGE_MAX_FILE_BYTES_ENV_VAR, str(DEFAULT_MAX_FILE_BYTES)
+                )
+            )
+        except ValueError:
+            max_bytes = DEFAULT_MAX_FILE_BYTES
+        self.upload_service = KnowledgeUploadService(
+            sources=self.source_service,
+            documents=self.document_service,
+            ingestion=self.ingestion_service,
+            storage=file_storage or LocalFileStorage(storage_root),
+            max_file_bytes=max_bytes if max_bytes > 0 else DEFAULT_MAX_FILE_BYTES,
+        )
+
+    @property
+    def embedder_name(self) -> str:
+        """Identify the active embedding provider (mock vs real)."""
+        return str(getattr(self._embedder, "provider_name", "unknown"))
 
     async def initialize(self) -> None:
         """Create the tenant-scoped indexes for knowledge collections."""

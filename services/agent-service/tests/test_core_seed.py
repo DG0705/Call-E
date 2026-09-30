@@ -1,10 +1,14 @@
-"""Tests for idempotent Kaari tenant/agent registration for live phone calls."""
+"""Tests proving a fresh installation seeds no customer data.
+
+The platform starts empty: no tenants, no AI employees, no knowledge.
+Customers create everything through the API/frontend. Kaari domain modules
+remain available as test fixtures, but production startup must not depend
+on them.
+"""
 
 import asyncio
 
 from agent_service.database import CoreDatabase
-from agent_service.kaari.catalog import KAARI_TENANT_ID
-from agent_service.kaari.service import KAARI_AGENT_ID
 from agent_service.models import AGENTS_COLLECTION, TENANTS_COLLECTION
 from agent_service.repositories import AgentRepository, TenantRepository
 from agent_service.services import AgentService, TenantService
@@ -36,6 +40,22 @@ class FakeCollection:
             None,
         )
 
+    async def find(self, filter: dict[str, object]) -> object:
+        class _Cursor:
+            def __init__(self, documents: list[dict[str, object]]) -> None:
+                self._documents = documents
+
+            async def to_list(self, length: int | None) -> list[dict[str, object]]:
+                return list(self._documents[:length] if length else self._documents)
+
+        return _Cursor(
+            [
+                document
+                for document in self.documents
+                if all(document.get(key) == value for key, value in filter.items())
+            ]
+        )
+
     async def replace_one(
         self, filter: dict[str, str], document: dict[str, object], **kwargs: object
     ) -> None:
@@ -64,46 +84,43 @@ class FakeCoreDatabase:
         return self.conversations
 
 
-def test_seed_registers_kaari_tenant_and_agent() -> None:
-    fake = FakeCoreDatabase()
+def _database(fake: FakeCoreDatabase) -> CoreDatabase:
     database = CoreDatabase(
         mongodb_url="mongodb://localhost:27017", database_name="call_e_core"
     )
     database.tenant_service = TenantService(TenantRepository(fake))
     database.agent_service = AgentService(AgentRepository(fake))
     database.conversation_store = type("C", (), {"ensure_indexes": _noop})()  # type: ignore[assignment]
-
-    run(database.seed_platform_tenants())
-
-    agent = run(
-        database.agent_service.get_by_tenant_and_id(
-            tenant_id=KAARI_TENANT_ID, agent_id=KAARI_AGENT_ID
-        )
-    )
-    assert agent is not None
-    assert agent.tenant_id == KAARI_TENANT_ID
-    assert "search_products" in agent.allowed_tools
-    assert [d for d in fake.tenants.documents if d["_id"] == KAARI_TENANT_ID]
-    assert [d for d in fake.agents.documents if d["_id"] == KAARI_AGENT_ID]
+    return database
 
 
-def test_seed_is_idempotent() -> None:
+def test_fresh_system_starts_with_no_tenants_or_agents() -> None:
     fake = FakeCoreDatabase()
-    database = CoreDatabase(
-        mongodb_url="mongodb://localhost:27017", database_name="call_e_core"
-    )
-    database.tenant_service = TenantService(TenantRepository(fake))
-    database.agent_service = AgentService(AgentRepository(fake))
-    database.conversation_store = type("C", (), {"ensure_indexes": _noop})()  # type: ignore[assignment]
+    database = _database(fake)
 
-    run(database.seed_platform_tenants())
-    run(database.seed_platform_tenants())
+    run(database.initialize())
 
-    tenants = [d for d in fake.tenants.documents if d["_id"] == KAARI_TENANT_ID]
-    agents = [d for d in fake.agents.documents if d["_id"] == KAARI_AGENT_ID]
-    assert len(tenants) == 1
-    assert len(agents) == 1
+    assert fake.tenants.documents == []
+    assert fake.agents.documents == []
 
 
-async def _noop() -> None:
+def test_startup_does_not_seed_kaari() -> None:
+    fake = FakeCoreDatabase()
+    database = _database(fake)
+
+    run(database.initialize())
+
+    assert not hasattr(database, "seed_platform_tenants")
+    assert all("kaari" not in str(document) for document in fake.agents.documents)
+
+
+def test_production_startup_needs_no_kaari_imports() -> None:
+    import agent_service.app as app_module
+    import agent_service.database as database_module
+
+    assert "KaariService" not in dir(app_module)
+    assert "KaariService" not in dir(database_module)
+
+
+async def _noop(self: object) -> None:
     return None

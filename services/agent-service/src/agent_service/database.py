@@ -1,11 +1,9 @@
 """MongoDB wiring for tenant and agent core data."""
 
 import os
-from datetime import UTC, datetime
 
 from pymongo import AsyncMongoClient
 
-from agent_service.models import Tenant
 from agent_service.repositories import AgentRepository, TenantRepository
 from agent_service.runtime.mongo_store import MongoConversationStore
 from agent_service.services import AgentService, TenantService
@@ -14,9 +12,6 @@ from agent_service.services import AgentService, TenantService
 DEFAULT_CORE_DATABASE = "call_e_core"
 MONGODB_URL_ENV_VAR = "MONGODB_URL"
 CORE_DATABASE_ENV_VAR = "CORE_DATABASE_NAME"
-
-SEED_ON_STARTUP_ENV_VAR = "AGENT_SERVICE_SEED"
-DEFAULT_SEED_ON_STARTUP = True
 
 
 class CoreDatabase:
@@ -30,30 +25,12 @@ class CoreDatabase:
         self.conversation_store = MongoConversationStore(database)
 
     async def initialize(self) -> None:
-        """Create indexes and register the Kaari tenant/agent for phone calls."""
-        await self.conversation_store.ensure_indexes()
-        if _should_seed():
-            await self.seed_platform_tenants()
+        """Create indexes for tenant, agent, and conversation data.
 
-    async def seed_platform_tenants(self) -> None:
-        """Idempotently register the Kaari tenant and sales agent.
-
-        The real phone-call MVP requires the Kaari agent configuration to be
-        resolvable by the agent runtime through MongoDB. This is safe to run on
-        every startup because both upserts are idempotent.
+        A fresh installation starts empty: no tenants, agents, or knowledge
+        are seeded. Customers create everything through the API/frontend.
         """
-        from agent_service.kaari.service import KAARI_TENANT_ID, create_kaari_agent
-
-        now = datetime.now(UTC)
-        tenant = Tenant(
-            id=KAARI_TENANT_ID,
-            name="Kaari Planters",
-            status="active",
-            created_at=now,
-            updated_at=now,
-        )
-        await self.tenant_service.upsert(tenant)
-        await self.agent_service.upsert(create_kaari_agent(now=now))
+        await self.conversation_store.ensure_indexes()
 
     async def close(self) -> None:
         """Release the MongoDB client during application shutdown."""

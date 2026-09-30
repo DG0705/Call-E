@@ -5,18 +5,21 @@ persisted, publishes normalized lifecycle events, and composes the voice
 engine through the existing VoiceSessionManager interface.
 """
 
+import asyncio
 import logging
+import time
 import uuid
 from datetime import UTC, datetime
 
 from call_e_shared.exceptions import PlatformError
 
 from voice_service.audio import AudioChunk
+from voice_service.config import TurnSettings
 from voice_service.session import VoiceSessionManager, VoiceTurnResult
 from voice_service.telephony import events
 from voice_service.telephony.models import TelephonyCall
 from voice_service.telephony.observability import log_telephony_event, safe_error_message
-from voice_service.telephony.provider import TelephonyProvider
+from voice_service.telephony.provider import AudioOutputInterrupted, TelephonyProvider
 from voice_service.telephony.store import CallStore
 
 _TELEPHONY_PROVIDER_ERROR = "telephony_provider_error"
@@ -41,12 +44,15 @@ class TelephonyService:
         voice_manager: VoiceSessionManager,
         event_publisher: events.EventPublisher,
         logger: logging.Logger | None = None,
+        turn_settings: TurnSettings | None = None,
     ) -> None:
         self._provider = provider
         self._call_store = call_store
         self._voice_manager = voice_manager
         self._event_publisher = event_publisher
         self._logger = logger or logging.getLogger(events.TELEPHONY_EVENT_LOGGER)
+        self._turn_settings = turn_settings or TurnSettings()
+        self._playout_abort: dict[str, asyncio.Event] = {}
 
     async def create_outbound_call(
         self,
@@ -288,9 +294,10 @@ class TelephonyService:
             await self._play_greeting(
                 call, session_id=session.session_id, request_id=request_id
             )
-        except PlatformError:
-            await self._mark_failed(call, _TELEPHONY_PROVIDER_ERROR, request_id)
-            raise
+        except Exception:
+            # _play_greeting never fails the call by contract; this guards
+            # against unexpected errors so setup always continues to turns.
+            pass
         return call
 
     async def process_audio(
@@ -324,18 +331,44 @@ class TelephonyService:
             input_format=audio.format,
         )
         try:
+            # Fresh abort flag per turn: stale sets from earlier turn phases
+            # must never cancel the new playout; the runner sets this event
+            # only while caller speech overlaps active RTP output.
+            playout_abort = asyncio.Event()
+            self._playout_abort[call.call_id] = playout_abort
+
             async def _stream_frame(frame: AudioChunk) -> None:
                 await self._provider.send_audio_frame(
-                    call, frame, request_id=request_id
+                    call, frame, request_id=request_id, abort=playout_abort
                 )
 
-            result = await self._voice_manager.process_audio_input(
-                tenant_id=call.tenant_id,
-                session_id=str(session_id),
-                audio=audio,
-                request_id=request_id,
-                audio_sink=_stream_frame,
-            )
+            try:
+                async with asyncio.timeout(self._turn_settings.turn_timeout):
+                    result = await self._voice_manager.process_audio_input(
+                        tenant_id=call.tenant_id,
+                        session_id=str(session_id),
+                        audio=audio,
+                        request_id=request_id,
+                        audio_sink=_stream_frame,
+                    )
+            except TimeoutError:
+                log_telephony_event(
+                    self._logger,
+                    "turn_failed",
+                    tenant_id=call.tenant_id,
+                    agent_id=call.agent_id,
+                    call_id=call.call_id,
+                    conversation_id=call.conversation_id,
+                    session_id=str(session_id),
+                    request_id=request_id,
+                    stage="turn_timeout",
+                    timeout_seconds=self._turn_settings.turn_timeout,
+                )
+                raise PlatformError(
+                    code="voice_turn_timeout",
+                    message="Voice turn exceeded its deadline.",
+                    status_code=504,
+                )
         except Exception as exc:
             log_telephony_event(
                 self._logger,
@@ -346,6 +379,8 @@ class TelephonyService:
                 conversation_id=call.conversation_id,
                 session_id=str(session_id),
                 request_id=request_id,
+                error=str(type(exc).__name__),
+                message=f"media_failed error={type(exc).__name__}",
             )
             raise
         log_telephony_event(
@@ -375,14 +410,30 @@ class TelephonyService:
             # classic buffered path still needs a send here.
             if result.audio.data:
                 await self._provider.send_audio(
-                    call, result.audio, request_id=request_id
+                    call,
+                    result.audio,
+                    request_id=request_id,
+                    abort=self._playout_abort.get(call.call_id),
                 )
+        except AudioOutputInterrupted:
+            log_telephony_event(
+                self._logger,
+                "audio_interrupted",
+                tenant_id=call.tenant_id,
+                agent_id=call.agent_id,
+                call_id=call.call_id,
+                conversation_id=call.conversation_id,
+                session_id=str(session_id),
+                request_id=request_id,
+            )
         except Exception as exc:
             raise PlatformError(
                 code=_TELEPHONY_PROVIDER_ERROR,
                 message="Telephony provider could not return audio.",
                 status_code=502,
             ) from exc
+        finally:
+            self._playout_abort.pop(call.call_id, None)
         log_telephony_event(
             self._logger,
             "audio_returned",
@@ -448,6 +499,7 @@ class TelephonyService:
         call = await self._require_open_call(
             tenant_id=tenant_id, call_id=call_id, request_id=request_id
         )
+        self._playout_abort.pop(call_id, None)
         try:
             call = await self._provider.hangup(call, request_id=request_id)
         except Exception as exc:
@@ -488,6 +540,41 @@ class TelephonyService:
         )
         return call
 
+    async def interrupt_audio(
+        self, *, tenant_id: str, call_id: str, request_id: str | None = None
+    ) -> bool:
+        """Signal caller barge-in: stop current RTP playout at the next frame.
+
+        The provider reports whether audio is actually leaving right now, so
+        speech during STT/runtime/TTS (or between turns) can never cancel a
+        reply that has not started playing. Returns True when an active
+        playout was interrupted; otherwise a no-op. Every turn starts with a
+        fresh flag and hangup clears it, so stale interrupts cannot leak.
+        """
+        call = await self._call_store.get(tenant_id=tenant_id, call_id=call_id)
+        if call is None:
+            return False
+        try:
+            playing = self._provider.is_playing(call)
+        except Exception:
+            playing = False
+        if not playing:
+            return False
+        event = self._playout_abort.get(call_id)
+        if event is None:
+            return False
+        event.set()
+        log_telephony_event(
+            self._logger,
+            "barge_in_detected",
+            tenant_id=call.tenant_id,
+            agent_id=call.agent_id,
+            call_id=call.call_id,
+            conversation_id=call.conversation_id,
+            request_id=request_id,
+        )
+        return True
+
     async def get_call(self, *, tenant_id: str, call_id: str) -> TelephonyCall:
         """Return one tenant-scoped call record or fail with a not-found error."""
         call = await self._call_store.get(tenant_id=tenant_id, call_id=call_id)
@@ -498,6 +585,12 @@ class TelephonyService:
                 status_code=404,
             )
         return call
+
+    async def list_calls(
+        self, *, tenant_id: str, limit: int = 50
+    ) -> list[TelephonyCall]:
+        """List a tenant's call records, newest first (read-only history)."""
+        return await self._call_store.list_recent(tenant_id=tenant_id, limit=limit)
 
     async def close(self) -> None:
         """Release provider resources during application shutdown."""
@@ -550,15 +643,73 @@ class TelephonyService:
 
         The greeting is optional and synthesized with the same voice as regular
         turns. A synthesis or delivery failure is logged and the call continues,
-        so the agent can still converse once the caller speaks.
+        so the agent can still converse once the caller speaks. This function
+        never raises for greeting problems and never fails the call.
         """
-        audio = await self._voice_manager.synthesize_greeting(
+        import time
+
+        log_telephony_event(
+            self._logger,
+            "GREETING_START",
             tenant_id=call.tenant_id,
+            agent_id=call.agent_id,
+            call_id=call.call_id,
+            conversation_id=call.conversation_id,
             session_id=session_id,
             request_id=request_id,
+            message="GREETING_START",
         )
+        tts_start = time.monotonic()
+        try:
+            audio = await self._voice_manager.synthesize_greeting(
+                tenant_id=call.tenant_id,
+                session_id=session_id,
+                request_id=request_id,
+            )
+        except Exception as exc:
+            log_telephony_event(
+                self._logger,
+                "greeting_failed",
+                tenant_id=call.tenant_id,
+                agent_id=call.agent_id,
+                call_id=call.call_id,
+                conversation_id=call.conversation_id,
+                session_id=session_id,
+                request_id=request_id,
+                stage="greeting_tts",
+                error=str(type(exc).__name__),
+                message=f"greeting_failed stage=greeting_tts error={type(exc).__name__}",
+            )
+            return
         if audio is None:
             return
+        tts_ms = int((time.monotonic() - tts_start) * 1000)
+        packets = max(1, len(audio.data) // 320) if audio.data else 0
+        log_telephony_event(
+            self._logger,
+            "GREETING_TTS_COMPLETED",
+            tenant_id=call.tenant_id,
+            agent_id=call.agent_id,
+            call_id=call.call_id,
+            conversation_id=call.conversation_id,
+            session_id=session_id,
+            request_id=request_id,
+            duration_ms=tts_ms,
+            message=f"GREETING_TTS_COMPLETED duration_ms={tts_ms}",
+        )
+        log_telephony_event(
+            self._logger,
+            "GREETING_RTP_START",
+            tenant_id=call.tenant_id,
+            agent_id=call.agent_id,
+            call_id=call.call_id,
+            conversation_id=call.conversation_id,
+            session_id=session_id,
+            request_id=request_id,
+            packets=packets,
+            message=f"GREETING_RTP_START packets={packets}",
+        )
+        rtp_start = time.monotonic()
         try:
             await self._provider.send_audio(call, audio, request_id=request_id)
         except Exception as exc:
@@ -573,11 +724,44 @@ class TelephonyService:
                 request_id=request_id,
                 error_code=_TELEPHONY_PROVIDER_ERROR,
             )
-            raise PlatformError(
-                code=_TELEPHONY_PROVIDER_ERROR,
-                message="Telephony provider could not return the greeting.",
-                status_code=502,
-            ) from exc
+            log_telephony_event(
+                self._logger,
+                "greeting_failed",
+                tenant_id=call.tenant_id,
+                agent_id=call.agent_id,
+                call_id=call.call_id,
+                conversation_id=call.conversation_id,
+                session_id=session_id,
+                request_id=request_id,
+                stage="greeting_delivery",
+                error=str(type(exc).__name__),
+                message=f"greeting_failed stage=greeting_delivery error={type(exc).__name__}",
+            )
+            return
+        rtp_ms = int((time.monotonic() - rtp_start) * 1000)
+        log_telephony_event(
+            self._logger,
+            "GREETING_RTP_COMPLETED",
+            tenant_id=call.tenant_id,
+            agent_id=call.agent_id,
+            call_id=call.call_id,
+            conversation_id=call.conversation_id,
+            session_id=session_id,
+            request_id=request_id,
+            duration_ms=rtp_ms,
+            message=f"GREETING_RTP_COMPLETED duration_ms={rtp_ms}",
+        )
+        log_telephony_event(
+            self._logger,
+            "GREETING_COMPLETED",
+            tenant_id=call.tenant_id,
+            agent_id=call.agent_id,
+            call_id=call.call_id,
+            conversation_id=call.conversation_id,
+            session_id=session_id,
+            request_id=request_id,
+            message="GREETING_COMPLETED",
+        )
         log_telephony_event(
             self._logger,
             "greeting_delivered",

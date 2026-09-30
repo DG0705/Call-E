@@ -13,6 +13,12 @@ from call_e_shared.exceptions import PlatformError
 
 from voice_service.agent_runtime import AgentRuntimeClient
 from voice_service.audio import AudioChunk, PcmFrameAccumulator, decode_wav
+from voice_service.config import TurnSettings
+from voice_service.greeting_cache import (
+    GreetingAudioStore,
+    InMemoryGreetingAudioStore,
+    greeting_cache_key,
+)
 from voice_service.models import AudioFormat, VoiceSession
 from voice_service.observability import VOICE_EVENT_LOGGER, log_voice_event
 from voice_service.session_store import VoiceSessionStore
@@ -36,6 +42,10 @@ _RUNTIME_FALLBACK_MESSAGE = (
     "I'm sorry, I'm having trouble reaching our systems right now. "
     "Please bear with me and try again in a moment."
 )
+_TURN_TIMEOUT_MESSAGE = (
+    "I'm sorry, give me just a moment."
+)
+_TURN_TIMEOUT_CODE = "voice_turn_timeout"
 
 
 class VoiceTurnResult(BaseModel):
@@ -69,12 +79,16 @@ class VoiceSessionManager:
         agent_runtime: AgentRuntimeClient,
         session_store: VoiceSessionStore,
         logger: logging.Logger | None = None,
+        turn_settings: TurnSettings | None = None,
+        greeting_store: GreetingAudioStore | None = None,
     ) -> None:
         self._stt_provider = stt_provider
         self._tts_provider = tts_provider
         self._agent_runtime = agent_runtime
         self._session_store = session_store
         self._logger = logger or logging.getLogger(VOICE_EVENT_LOGGER)
+        self._turn_settings = turn_settings or TurnSettings()
+        self._greeting_store = greeting_store or InMemoryGreetingAudioStore()
 
     @property
     def stt_provider(self) -> STTProvider:
@@ -162,23 +176,60 @@ class VoiceSessionManager:
         session_id: str,
         request_id: str | None = None,
     ) -> AudioChunk | None:
-        """Synthesize the session's configured greeting, if any.
+        """Return the session's configured greeting audio, cached when possible.
 
-        The greeting is a call-level opening statement configured on the agent
-        (for example the Kaari sales agent). It is synthesized through the same
-        TTS provider as ordinary turns so the caller hears the agent's voice.
-        Returns ``None`` when the agent declared no greeting.
+        The greeting is static per agent configuration, so PCM synthesized for
+        an identical (tenant, agent, text, voice, model, format) tuple is
+        reused instead of calling TTS again. A configuration change misses the
+        cache and regenerates; stale entries are pruned on store. Returns
+        ``None`` when the agent declared no greeting.
         """
         session = await self._require_session(tenant_id=tenant_id, session_id=session_id)
         greeting = session.metadata.get("greeting")
         if not greeting:
             return None
+        text = str(greeting)
+        model = getattr(self._tts_provider, "_model_id", None) or getattr(
+            self._tts_provider, "model_name", None
+        )
+        cache_key = greeting_cache_key(
+            tenant_id=session.tenant_id,
+            agent_id=session.agent_id,
+            text=text,
+            voice_id=session.voice_id,
+            model=str(model) if model is not None else None,
+            output_format=session.output_audio_format,
+        )
         try:
-            synthesis = await self._tts_provider.synthesize(
-                text=str(greeting),
-                voice_id=session.voice_id,
-                language=session.language,
-                output_format=session.output_audio_format,
+            cached = await asyncio.wait_for(
+                self._greeting_store.get(cache_key), timeout=3.0
+            )
+        except Exception:
+            cached = None
+        if cached is not None:
+            log_voice_event(
+                self._logger,
+                "audio_synthesized",
+                tenant_id=session.tenant_id,
+                agent_id=session.agent_id,
+                session_id=session.session_id,
+                conversation_id=session.conversation_id,
+                request_id=request_id,
+                stage="greeting",
+                provider=getattr(self._tts_provider, "provider_name", "unknown"),
+                content_type="audio/pcm",
+                greeting_cached=True,
+            )
+            return cached
+        try:
+            synthesis = await asyncio.wait_for(
+                self._tts_provider.synthesize(
+                    text=text,
+                    voice_id=session.voice_id,
+                    language=session.language,
+                    output_format=session.output_audio_format,
+                ),
+                timeout=self._turn_settings.tts_timeout,
             )
         except Exception as exc:
             log_voice_event(
@@ -209,7 +260,22 @@ class VoiceSessionManager:
             stage="greeting",
             provider=synthesis.provider,
             content_type=synthesis.content_type,
+            greeting_cached=False,
         )
+        try:
+            async with asyncio.timeout(5.0):
+                await self._greeting_store.put(cache_key, synthesis.audio)
+                await self._greeting_store.prune(
+                    tenant_id=session.tenant_id,
+                    agent_id=session.agent_id,
+                    voice_id=session.voice_id,
+                    keep_key=cache_key,
+                )
+        except Exception:
+            self._logger.warning(
+                "greeting cache store failed",
+                extra={"session_id": session.session_id},
+            )
         return synthesis.audio
 
     async def process_audio_input(
@@ -267,8 +333,59 @@ class VoiceSessionManager:
         # emitted when the finalized utterance enters the pipeline, so the
         # deltas below measure speech_end -> transcription -> runtime -> TTS.
         turn_start = time.monotonic()
+        log_voice_event(
+            self._logger,
+            "STT_START",
+            tenant_id=tenant_id,
+            agent_id=session.agent_id,
+            session_id=session.session_id,
+            conversation_id=session.conversation_id,
+            request_id=request_id,
+            message="STT_START",
+        )
         try:
-            transcription = await self._stt_provider.transcribe(audio)
+            try:
+                transcription = await asyncio.wait_for(
+                    self._stt_provider.transcribe(audio),
+                    timeout=self._turn_settings.stt_timeout,
+                )
+            except TimeoutError:
+                # One immediate retry: provider stalls are usually transient,
+                # and a rescued turn answers seconds sooner than a fallback.
+                log_voice_event(
+                    self._logger,
+                    "stt_retry",
+                    tenant_id=tenant_id,
+                    agent_id=session.agent_id,
+                    session_id=session.session_id,
+                    conversation_id=session.conversation_id,
+                    request_id=request_id,
+                )
+                transcription = await asyncio.wait_for(
+                    self._stt_provider.transcribe(audio),
+                    timeout=self._turn_settings.stt_timeout,
+                )
+        except TimeoutError:
+            log_voice_event(
+                self._logger,
+                "turn_failed",
+                tenant_id=tenant_id,
+                agent_id=session.agent_id,
+                session_id=session.session_id,
+                conversation_id=session.conversation_id,
+                request_id=request_id,
+                stage="stt",
+                error_code=_STT_ERROR_CODE,
+                timeout=True,
+                message="turn_failed stage=stt error=TimeoutError timeout=True",
+            )
+            return await self._fallback_turn(
+                session,
+                text=_STT_FALLBACK_MESSAGE,
+                transcript="",
+                request_id=request_id,
+                error_code=_STT_ERROR_CODE,
+            )
         except Exception:
             log_voice_event(
                 self._logger,
@@ -280,6 +397,7 @@ class VoiceSessionManager:
                 request_id=request_id,
                 stage="stt",
                 error_code=_STT_ERROR_CODE,
+                message="turn_failed stage=stt",
             )
             return await self._fallback_turn(
                 session,
@@ -309,11 +427,35 @@ class VoiceSessionManager:
                 status_code=422,
             )
         try:
-            runtime_result = await self._agent_runtime.respond(
+            runtime_result = await asyncio.wait_for(
+                self._agent_runtime.respond(
+                    tenant_id=tenant_id,
+                    agent_id=session.agent_id,
+                    conversation_id=session.conversation_id,
+                    message=transcription.text,
+                ),
+                timeout=self._turn_settings.runtime_timeout,
+            )
+        except TimeoutError:
+            log_voice_event(
+                self._logger,
+                "turn_failed",
                 tenant_id=tenant_id,
                 agent_id=session.agent_id,
+                session_id=session.session_id,
                 conversation_id=session.conversation_id,
-                message=transcription.text,
+                request_id=request_id,
+                stage="runtime",
+                error_code=_RUNTIME_ERROR_CODE,
+                timeout=True,
+                message="turn_failed stage=runtime error=TimeoutError timeout=True",
+            )
+            return await self._fallback_turn(
+                session,
+                text=_RUNTIME_FALLBACK_MESSAGE,
+                transcript=transcription.text,
+                request_id=request_id,
+                error_code=_RUNTIME_ERROR_CODE,
             )
         except Exception:
             log_voice_event(
@@ -326,6 +468,7 @@ class VoiceSessionManager:
                 request_id=request_id,
                 stage="runtime",
                 error_code=_RUNTIME_ERROR_CODE,
+                message="turn_failed stage=runtime",
             )
             return await self._fallback_turn(
                 session,
@@ -336,6 +479,9 @@ class VoiceSessionManager:
             )
         runtime_done = time.monotonic()
         runtime_elapsed_ms = int((runtime_done - stt_done) * 1000)
+        tool_iterations = int(
+            getattr(runtime_result, "tool_iterations", 0) or 0
+        ) or len(getattr(runtime_result, "tool_execution_history", None) or [])
         log_voice_event(
             self._logger,
             "runtime_response_generated",
@@ -425,6 +571,7 @@ class VoiceSessionManager:
                 runtime_elapsed_ms=runtime_elapsed_ms,
                 tts_elapsed_ms=tts_elapsed_ms,
                 turn_elapsed_ms=turn_elapsed_ms,
+                tool_iterations=tool_iterations,
                 response_chars=len(runtime_result.text),
                 audio_bytes=int(stream_stats["bytes"]),
                 audio_packets_streamed=frames_sent,
@@ -451,14 +598,16 @@ class VoiceSessionManager:
                 audio_packets_streamed=frames_sent,
             )
         try:
-            synthesis = await self._tts_provider.synthesize(
-                text=runtime_result.text,
-                voice_id=session.voice_id,
-                language=session.language,
-                output_format=session.output_audio_format,
+            synthesis = await asyncio.wait_for(
+                self._tts_provider.synthesize(
+                    text=runtime_result.text,
+                    voice_id=session.voice_id,
+                    language=session.language,
+                    output_format=session.output_audio_format,
+                ),
+                timeout=self._turn_settings.tts_timeout,
             )
-        except Exception as exc:
-            await self._fail(session, _TTS_ERROR_CODE)
+        except TimeoutError as exc:
             log_voice_event(
                 self._logger,
                 "turn_failed",
@@ -469,12 +618,41 @@ class VoiceSessionManager:
                 request_id=request_id,
                 stage="tts",
                 error_code=_TTS_ERROR_CODE,
+                timeout=True,
+                error=str(type(exc).__name__),
+                message=f"turn_failed stage=tts error={type(exc).__name__} timeout=True",
             )
-            raise PlatformError(
-                code=_TTS_ERROR_CODE,
-                message="Text-to-speech synthesis failed.",
-                status_code=502,
-            ) from exc
+            return await self._fallback_turn(
+                session,
+                text=_RUNTIME_FALLBACK_MESSAGE,
+                transcript=transcription.text,
+                request_id=request_id,
+                error_code=_TTS_ERROR_CODE,
+            )
+        except Exception as exc:
+            log_voice_event(
+                self._logger,
+                "turn_failed",
+                tenant_id=tenant_id,
+                agent_id=session.agent_id,
+                session_id=session.session_id,
+                conversation_id=session.conversation_id,
+                request_id=request_id,
+                stage="tts",
+                error_code=_TTS_ERROR_CODE,
+                error=str(type(exc).__name__),
+                message=(
+                    f"turn_failed stage=tts error={type(exc).__name__} "
+                    f"detail={exc}"
+                ),
+            )
+            return await self._fallback_turn(
+                session,
+                text=_RUNTIME_FALLBACK_MESSAGE,
+                transcript=transcription.text,
+                request_id=request_id,
+                error_code=_TTS_ERROR_CODE,
+            )
         synth_done = time.monotonic()
         tts_elapsed_ms = int((synth_done - runtime_done) * 1000)
         turn_elapsed_ms = int((synth_done - turn_start) * 1000)
@@ -502,6 +680,7 @@ class VoiceSessionManager:
             runtime_elapsed_ms=runtime_elapsed_ms,
             tts_elapsed_ms=tts_elapsed_ms,
             turn_elapsed_ms=turn_elapsed_ms,
+            tool_iterations=tool_iterations,
             response_chars=len(runtime_result.text),
             audio_bytes=len(synthesis.audio.data),
         )
@@ -521,6 +700,7 @@ class VoiceSessionManager:
             tts_provider=synthesis.provider,
             tts_voice_id=synthesis.voice_id,
             content_type=synthesis.content_type,
+            audio_packets_streamed=0,
         )
 
     async def _stream_tts_to_sink(
@@ -611,9 +791,18 @@ class VoiceSessionManager:
                     pass
             raise
         except Exception as exc:
-            if stats.get("sink_error"):
+            # Deferred import: telephony.provider is owned by the layer above.
+            from voice_service.telephony.provider import AudioOutputInterrupted
+
+            if isinstance(exc, AudioOutputInterrupted):
+                # Caller barge-in: partial playout stands; report interruption
+                # with the frames already sent instead of raising.
+                stats["completed"] = False
+                stats["interrupted"] = True
+            elif stats.get("sink_error"):
                 raise
-            stats["error"] = type(exc).__name__
+            else:
+                stats["error"] = type(exc).__name__
         total_ms = int((time.monotonic() - tts_start) * 1000)
         log_voice_event(
             self._logger,
@@ -643,9 +832,10 @@ class VoiceSessionManager:
         """Return a graceful spoken fallback instead of silence on provider failure.
 
         The session is marked active again so the caller can retry. If speech
-        synthesis itself is unavailable we cannot speak a fallback, so the
-        session is marked failed and a platform error is raised to drive a
-        graceful call termination.
+        synthesis itself is unavailable, the turn returns empty audio (nothing
+        to play) but the session stays active and the call continues — a dead
+        TTS provider must never hang up a live call. The failure is logged
+        loudly with the provider error so credentials can be fixed.
         """
         log_voice_event(
             self._logger,
@@ -660,14 +850,16 @@ class VoiceSessionManager:
             text_chars=len(text),
         )
         try:
-            synthesis = await self._tts_provider.synthesize(
-                text=text,
-                voice_id=session.voice_id,
-                language=session.language,
-                output_format=session.output_audio_format,
+            synthesis = await asyncio.wait_for(
+                self._tts_provider.synthesize(
+                    text=text,
+                    voice_id=session.voice_id,
+                    language=session.language,
+                    output_format=session.output_audio_format,
+                ),
+                timeout=self._turn_settings.tts_timeout,
             )
         except Exception as tts_exc:
-            await self._fail(session, _TTS_ERROR_CODE)
             log_voice_event(
                 self._logger,
                 "turn_failed",
@@ -678,12 +870,28 @@ class VoiceSessionManager:
                 request_id=request_id,
                 stage="fallback",
                 error_code=_TTS_ERROR_CODE,
+                error=str(type(tts_exc).__name__),
+                message=(
+                    f"turn_failed stage=fallback error={type(tts_exc).__name__} "
+                    f"detail={tts_exc}"
+                ),
             )
-            raise PlatformError(
-                code=_TTS_ERROR_CODE,
-                message="Text-to-speech synthesis failed.",
-                status_code=502,
-            ) from tts_exc
+            await self._mark(session, "active")
+            return VoiceTurnResult(
+                session_id=session.session_id,
+                tenant_id=session.tenant_id,
+                agent_id=session.agent_id,
+                conversation_id=session.conversation_id,
+                transcript=transcript,
+                response_text=text,
+                audio=AudioChunk(data=b"", format="pcm"),
+                stt_provider=getattr(self._stt_provider, "provider_name", "unknown"),
+                runtime_provider="fallback",
+                runtime_model="fallback",
+                tts_provider=getattr(self._tts_provider, "provider_name", "unknown"),
+                tts_voice_id=None,
+                content_type="audio/pcm",
+            )
         await self._mark(session, "active")
         log_voice_event(
             self._logger,

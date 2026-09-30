@@ -717,6 +717,7 @@ def test_runtime_emits_lifecycle_observability_events() -> None:
         "tool_called",
         "tool_completed",
         "response_generated",
+        "runtime_turn_completed",
     ]
     for event in handler.events:
         scoped = {k: event.get(k) for k in ("tenant_id", "agent_id", "conversation_id")}

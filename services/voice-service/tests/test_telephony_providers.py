@@ -524,7 +524,165 @@ def test_rtp_egress_release_drops_channel_state() -> None:
     assert sender.pending_packets("chan-1") is None
 
 
-def test_rtp_egress_send_frame_paces_single_frames() -> None:
+def test_rtp_egress_send_aborts_at_frame_boundary() -> None:
+    import asyncio as asyncio_module
+
+    from voice_service.telephony.asterisk.rtp_egress import (
+        RtpEgressAborted,
+        RtpEgressSender,
+    )
+
+    class RecordingTransport:
+        def __init__(self) -> None:
+            self.sent: list[tuple[bytes, tuple[str, int]]] = []
+
+        def sendto(self, data: bytes, addr: tuple[str, int]) -> None:
+            self.sent.append((bytes(data), addr))
+
+    sender = RtpEgressSender()
+    transport = RecordingTransport()
+    sender._transport = transport  # type: ignore[assignment]
+    remote = ("127.0.0.1", 9995)
+    frame = AudioChunk(data=b"\x00\x00" * 160, format="pcm")
+    abort = asyncio_module.Event()
+    abort.set()
+
+    async def main() -> None:
+        await sender.send_frame("chan-abort", remote, frame, abort=abort)
+
+    with pytest.raises(RtpEgressAborted):
+        asyncio.run(main())
+    assert transport.sent == []
+
+
+def test_rtp_egress_send_bulk_aborts_mid_stream() -> None:
+    import asyncio as asyncio_module
+
+    from voice_service.telephony.asterisk.rtp_egress import (
+        RtpEgressAborted,
+        RtpEgressSender,
+    )
+
+    class RecordingTransport:
+        def __init__(self) -> None:
+            self.sent: list[tuple[bytes, tuple[str, int]]] = []
+
+        def sendto(self, data: bytes, addr: tuple[str, int]) -> None:
+            self.sent.append((bytes(data), addr))
+            abort.set()
+
+    sender = RtpEgressSender()
+    transport = RecordingTransport()
+    sender._transport = transport  # type: ignore[assignment]
+    abort = asyncio_module.Event()
+
+    async def main() -> None:
+        await sender.send(
+            "chan-abort-bulk",
+            ("127.0.0.1", 9994),
+            AudioChunk(data=b"\x00\x00" * 480, format="pcm"),
+            abort=abort,
+        )
+
+    with pytest.raises(RtpEgressAborted):
+        asyncio.run(main())
+    # First datagram sent, the rest stopped at the abort boundary.
+    assert len(transport.sent) == 1
+
+
+def test_adapter_send_audio_frame_translates_abort() -> None:
+    import asyncio as asyncio_module
+
+    from voice_service.telephony.provider import AudioOutputInterrupted
+
+    transport = FakeAsteriskTransport()
+    adapter = build_adapter(transport=transport)
+    call = asyncio.run(
+        adapter.start_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            destination_number="+15550002",
+        )
+    )
+    abort = asyncio_module.Event()
+    abort.set()
+
+    async def main() -> None:
+        try:
+            adapter.bind_egress(call, remote_host="127.0.0.1", remote_port=9993)
+            await adapter.send_audio_frame(
+                call,
+                AudioChunk(data=b"\x00\x00" * 160, format="pcm"),
+                abort=abort,
+            )
+        finally:
+            await adapter.close()
+
+    with pytest.raises(AudioOutputInterrupted):
+        asyncio.run(main())
+
+
+def test_sender_is_playing_reflects_recent_sends() -> None:
+    from voice_service.telephony.asterisk.rtp_egress import RtpEgressSender
+
+    now = [5000.0]
+    sender = RtpEgressSender(_clock=lambda: now[0])
+
+    assert sender.is_playing("chan-x") is False
+
+    sender._last_sent["chan-x"] = 5000.0  # type: ignore[attr-defined]
+    assert sender.is_playing("chan-x") is True
+
+    now[0] = 5000.6
+    assert sender.is_playing("chan-x") is False
+
+
+def test_mock_provider_is_playing_tracks_sends() -> None:
+    from voice_service.telephony.mock_provider import MockTelephonyProvider
+
+    provider = MockTelephonyProvider()
+    call = asyncio.run(
+        provider.start_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            destination_number="+15550002",
+        )
+    )
+
+    assert provider.is_playing(call) is False
+    asyncio.run(
+        provider.send_audio_frame(call, AudioChunk(data=b"\x00" * 320, format="pcm"))
+    )
+    assert provider.is_playing(call) is True
+
+
+def test_adapter_is_playing_follows_sender() -> None:
+    transport = FakeAsteriskTransport()
+    adapter = build_adapter(transport=transport)
+    call = asyncio.run(
+        adapter.start_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id="conversation-1",
+            destination_number="+15550002",
+        )
+    )
+
+    async def main() -> tuple[bool, bool]:
+        adapter.bind_egress(call, remote_host="127.0.0.1", remote_port=9992)
+        before = adapter.is_playing(call)
+        await adapter.send_audio_frame(
+            call, AudioChunk(data=b"\x00\x00" * 160, format="pcm")
+        )
+        during = adapter.is_playing(call)
+        await adapter.close()
+        return before, during
+
+    before, during = asyncio.run(main())
+    assert before is False
+    assert during is True
     import struct
 
     from voice_service.telephony.asterisk.rtp_egress import RtpEgressSender

@@ -12,6 +12,11 @@ KNOWLEDGE_CHUNKS_COLLECTION = "knowledge_chunks"
 
 SourceType = Literal["text", "markdown", "html", "pdf"]
 
+DOCUMENT_STATUS_UPLOADED = "uploaded"
+DOCUMENT_STATUS_PROCESSING = "processing"
+DOCUMENT_STATUS_READY = "ready"
+DOCUMENT_STATUS_FAILED = "failed"
+
 
 class KnowledgeSource(BaseModel):
     """A tenant-scoped grouping of knowledge documents."""
@@ -39,7 +44,13 @@ class KnowledgeDocument(BaseModel):
     title: str
     source_type: SourceType = "text"
     raw_content: str
-    status: str = "active"
+    status: str = "uploaded"
+    error: str | None = None
+    chunks: int = 0
+    file_name: str | None = None
+    mime_type: str | None = None
+    size_bytes: int | None = None
+    source_url: str | None = None
     created_at: datetime
     updated_at: datetime
 

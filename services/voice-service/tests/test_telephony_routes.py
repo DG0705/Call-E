@@ -207,3 +207,46 @@ def test_dev_inbound_route_rejects_unmapped_extension() -> None:
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "inbound_extension_unmapped"
+
+
+def test_dev_router_supports_tenant_agent_overrides() -> None:
+    from voice_service.telephony.dev_routing import KaariDevRouter
+
+    router = KaariDevRouter(
+        "1000", tenant_id="demo-co", agent_id="demo-assistant"
+    )
+
+    route = router.resolve(destination_number="1000")
+
+    assert route.tenant_id == "demo-co"
+    assert route.agent_id == "demo-assistant"
+    assert route.destination_number == "1000"
+
+
+def test_dev_router_defaults_still_resolve_kaari() -> None:
+    from voice_service.telephony.dev_routing import KaariDevRouter
+
+    route = KaariDevRouter("1000").resolve(destination_number="1000")
+
+    assert route.tenant_id == "kaari-planters"
+    assert route.agent_id == "kaari-sales-agent"
+
+
+def test_list_calls_route_returns_tenant_history_newest_first() -> None:
+    client = build_client()
+    create_call(client, tenant_id="tenant-1")
+    create_call(client, tenant_id="tenant-1")
+    create_call(client, tenant_id="tenant-2")
+
+    response = client.get("/api/v1/telephony/calls", params={"tenant_id": "tenant-1"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 2
+    assert all(call["tenant_id"] == "tenant-1" for call in body)
+
+
+def test_list_calls_route_requires_tenant() -> None:
+    client = build_client()
+
+    assert client.get("/api/v1/telephony/calls").status_code == 422

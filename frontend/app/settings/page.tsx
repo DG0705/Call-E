@@ -61,12 +61,15 @@ export default function SettingsPage() {
 
           {tab === "Profile" && (
             <Card className="space-y-5 p-6">
-              <SectionHeading title="Profile" />
+              <SectionHeading
+                title="Profile"
+                subtitle="No user-profile endpoint exists yet — these fields are not saved anywhere."
+              />
               <Field label="Full name">
-                <TextInput defaultValue="Aarav Rao" />
+                <TextInput placeholder="Your full name" />
               </Field>
               <Field label="Email">
-                <TextInput defaultValue="aarav@example.com" inputMode="email" />
+                <TextInput placeholder="you@example.com" inputMode="email" />
               </Field>
               <div><Button>Save changes</Button></div>
             </Card>
@@ -74,29 +77,11 @@ export default function SettingsPage() {
 
           {tab === "Team" && (
             <Card className="p-6">
-              <SectionHeading
-                title="Team"
-                subtitle="2 seats used"
-                action={<Button variant="secondary" size="sm">Invite member</Button>}
-              />
-              <ul className="divide-y divide-line-200">
-                {(
-                  [
-                    ["Aarav Rao", "Owner", "AR"],
-                    ["Meera Iyer", "Admin", "MI"],
-                  ] as const
-                ).map(([name, role, initials]) => (
-                  <li key={name} className="flex items-center gap-3 py-3">
-                    <span className="flex size-9 items-center justify-center rounded-full bg-brand-700 text-xs font-semibold text-white">
-                      {initials}
-                    </span>
-                    <span className="flex-1">
-                      <span className="block text-sm font-medium text-ink-900">{name}</span>
-                      <span className="block text-xs text-ink-500">{role}</span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <SectionHeading title="Team" />
+              <p className="rounded-xl border border-dashed border-line-300 px-5 py-8 text-center text-sm text-ink-500">
+                Team membership is not connected to any backend yet — no members
+                to show.
+              </p>
             </Card>
           )}
 

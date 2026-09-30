@@ -1,11 +1,12 @@
 """Agent service application assembly."""
 
+import os
+
 from fastapi import FastAPI
 
 from agent_service.database import CoreDatabase, create_core_database
-from agent_service.kaari.service import KaariService
 from agent_service.routes.core import router as core_router
-from agent_service.routes.kaari import router as kaari_router
+from agent_service.routes.agents import router as agents_router
 from agent_service.routes.runtime import router as runtime_router
 from agent_service.runtime import (
     AgentRuntime,
@@ -15,6 +16,7 @@ from agent_service.runtime import (
 )
 from agent_service.runtime.config import LLMSettings, load_llm_settings
 from agent_service.runtime.context import ConversationStore, InMemoryConversationStore
+from agent_service.runtime.knowledge_service import KnowledgeServiceRetriever
 from agent_service.runtime.tools import ToolRegistry, create_development_tool_registry
 from agent_service.services import AgentService, TenantService
 from call_e_shared import create_app
@@ -24,16 +26,14 @@ AGENT_SERVICE_NAME = "agent-service"
 
 
 def create_combined_tool_registry() -> ToolRegistry:
-    """Create a tool registry containing both dev and Kaari sales tools."""
-    kaari = KaariService()
-    registry = kaari.create_tool_registry()
-    dev_registry = create_development_tool_registry()
-    for tool in dev_registry.list():
-        if registry.get(tool.tool_name) is None:
-            existing = dev_registry.get(tool.tool_name)
-            if existing is not None:
-                registry.register(existing)
-    return registry
+    """Create the default tool registry with generic development tools.
+
+    Customer-specific tools (such as the Kaari sales tools used in tests)
+    are intentionally not registered here: agents may only use tools listed
+    in their own ``allowed_tools``, and generic employees work with no
+    customer tools at all.
+    """
+    return create_development_tool_registry()
 
 
 def create_agent_app(
@@ -48,7 +48,7 @@ def create_agent_app(
     tool_registry: ToolRegistry | None = None,
     knowledge_retriever: KnowledgeRetriever | None = None,
     knowledge_top_k: int = 3,
-    kaari_service: KaariService | None = None,
+    knowledge_service_url: str | None = None,
 ) -> FastAPI:
     """Create the service hosting the minimal tenant and agent core."""
     app = create_app(AGENT_SERVICE_NAME)
@@ -59,13 +59,19 @@ def create_agent_app(
     app.state.agent_service = agent_service or database.agent_service
     settings = llm_settings or load_llm_settings()
 
-    kaari = kaari_service or KaariService()
-    app.state.kaari_service = kaari
-
     combined_registry = tool_registry or create_combined_tool_registry()
 
     effective_knowledge = knowledge_retriever
     effective_top_k = knowledge_top_k
+    if effective_knowledge is None:
+        # Live grounding: resolve each agent's knowledge_sources and search
+        # knowledge-service over HTTP. Retrieval failures degrade to empty
+        # context inside the retriever, so calls never break on outage.
+        effective_knowledge = KnowledgeServiceRetriever(
+            base_url=knowledge_service_url
+            or os.getenv("KNOWLEDGE_SERVICE_URL", "http://knowledge-service:8000"),
+            configuration_loader=app.state.agent_service,
+        )
 
     app.state.agent_runtime = agent_runtime or AgentRuntime(
         configuration_loader=app.state.agent_service,
@@ -78,8 +84,8 @@ def create_agent_app(
         knowledge_top_k=effective_top_k,
     )
     app.include_router(core_router)
+    app.include_router(agents_router)
     app.include_router(runtime_router)
-    app.include_router(kaari_router)
 
     if database is not None:
 

@@ -1,11 +1,14 @@
 """Deterministic local telephony provider for development and tests."""
 
+import asyncio
+import time
 import uuid
 from datetime import UTC, datetime
 
 from voice_service.audio import AudioChunk
 from voice_service.telephony.models import TelephonyCall
 from voice_service.telephony.provider import (
+    AudioOutputInterrupted,
     TelephonyTransferUnavailableError,
 )
 
@@ -17,6 +20,7 @@ class MockTelephonyProvider:
 
     def __init__(self) -> None:
         self._state: dict[str, dict[str, object]] = {}
+        self._last_sent_at: dict[str, float] = {}
 
     def _state_for(self, call_id: str) -> dict[str, object]:
         return self._state.setdefault(
@@ -101,11 +105,15 @@ class MockTelephonyProvider:
         audio: AudioChunk,
         *,
         request_id: str | None = None,
+        abort: asyncio.Event | None = None,
     ) -> None:
+        if abort is not None and abort.is_set():
+            raise AudioOutputInterrupted(f"Audio playout interrupted for {call.call_id}.")
         state = self._state_for(call.call_id)
         sent = state["sent"]
         if isinstance(sent, list):
             sent.append(audio)
+        self._last_sent_at[call.call_id] = time.monotonic()
 
     async def send_audio_frame(
         self,
@@ -113,12 +121,20 @@ class MockTelephonyProvider:
         frame: AudioChunk,
         *,
         request_id: str | None = None,
+        abort: asyncio.Event | None = None,
     ) -> int:
+        if abort is not None and abort.is_set():
+            raise AudioOutputInterrupted(f"Audio playout interrupted for {call.call_id}.")
         state = self._state_for(call.call_id)
         sent = state["sent"]
         if isinstance(sent, list):
             sent.append(frame)
+        self._last_sent_at[call.call_id] = time.monotonic()
         return 1
+
+    def is_playing(self, call: TelephonyCall) -> bool:
+        """Report recent sends like paced RTP output for barge-in gating."""
+        return time.monotonic() - self._last_sent_at.get(call.call_id, 0.0) < 0.5
 
     async def hangup(
         self, call: TelephonyCall, *, request_id: str | None = None

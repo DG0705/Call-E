@@ -4,6 +4,7 @@ Implementations translate phone/SIP behavior into normalized :class:`TelephonyCa
 state. Business logic must never depend on a specific telephony vendor.
 """
 
+import asyncio
 from typing import Protocol
 
 from voice_service.audio import AudioChunk
@@ -12,6 +13,14 @@ from voice_service.telephony.models import TelephonyCall
 
 class TelephonyProviderError(Exception):
     """Base error for provider-level telephony failures."""
+
+
+class AudioOutputInterrupted(Exception):
+    """Caller speech cut off outbound audio playout (barge-in).
+
+    Not a failure: partial audio already heard stands, and the turn ends
+    early so the caller's new utterance is handled next.
+    """
 
 
 class TelephonyTransferUnavailableError(TelephonyProviderError):
@@ -67,6 +76,7 @@ class TelephonyProvider(Protocol):
         audio: AudioChunk,
         *,
         request_id: str | None = None,
+        abort: asyncio.Event | None = None,
     ) -> None:
         """Send synthesized audio out toward the phone."""
         ...
@@ -77,11 +87,13 @@ class TelephonyProvider(Protocol):
         frame: AudioChunk,
         *,
         request_id: str | None = None,
+        abort: asyncio.Event | None = None,
     ) -> int:
         """Stream one 20 ms PCM frame toward the phone; return datagrams sent.
 
         Provider-neutral incremental counterpart to :meth:`send_audio` for
         streaming TTS. Returns 0 when the call has no bound streaming egress.
+        Raises :class:`AudioOutputInterrupted` when ``abort`` is set.
         """
         ...
 
@@ -100,3 +112,11 @@ class TelephonyProvider(Protocol):
     ) -> TelephonyCall:
         """Placeholder for human transfer/escalation."""
         ...
+
+    def is_playing(self, call: TelephonyCall) -> bool:
+        """Report whether phone audio is currently leaving for this call.
+
+        The barge-in gate consults this before interrupting: only speech that
+        overlaps actual RTP output may cancel a reply.
+        """
+        return False

@@ -30,6 +30,7 @@ Conversational guidelines:
 - This is a live phone call — the customer hears, not reads. Behave like a calm, capable human call-center sales representative, not a questionnaire and not a product presentation.
 - When a customer describes a need, use search_products to find matching planters.
 - When a customer asks about pricing, use calculate_retail_price with the correct product_id, variant_id, and quantity.
+- If the customer names a specific product and asks its price, call calculate_retail_price directly with your best-known product_id and variant_id — only use search_products first when you do not know which product they mean. Never chain search calls back-to-back; one search is enough before deciding.
 - Never invent prices — always use the calculate_retail_price tool for pricing information.
 - Communicate pricing tiers carefully:
   * For 1-3 pieces: "Kaari generally offers a 20-25% retail discount for 1-3 pieces."
@@ -92,6 +93,7 @@ def create_kaari_agent(*, now: datetime | None = None) -> Agent:
         id=KAARI_AGENT_ID,
         tenant_id=KAARI_TENANT_ID,
         name="Kaari AI Sales Agent",
+        description="Handles inbound product enquiries and lead qualification.",
         role="AI Sales Representative",
         status="active",
         system_prompt=_KAARI_SYSTEM_PROMPT,

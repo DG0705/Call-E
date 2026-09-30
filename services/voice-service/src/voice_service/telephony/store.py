@@ -1,5 +1,7 @@
 """Persistence boundaries for normalized telephony call records."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -9,12 +11,24 @@ from voice_service.mongo_indexes import ensure_lookup_index
 CALL_LOOKUP_INDEX = "tenant_call"
 
 
+class CallCursor(Protocol):
+    """Async cursor surface used to list call documents."""
+
+    def sort(self, key: str, direction: int) -> CallCursor: ...
+
+    def limit(self, count: int) -> CallCursor: ...
+
+    async def to_list(self, length: int | None) -> list[dict[str, Any]]: ...
+
+
 class CallCollection(Protocol):
     """Mongo collection operations used by call persistence."""
 
     async def create_index(self, keys: list[tuple[str, int]], **kwargs: Any) -> str: ...
 
     async def find_one(self, filter: dict[str, str]) -> dict[str, Any] | None: ...
+
+    def find(self, filter: dict[str, object]) -> CallCursor: ...
 
     async def insert_one(self, document: dict[str, Any]) -> Any: ...
 
@@ -39,6 +53,8 @@ class CallStore(Protocol):
     async def create(self, call: TelephonyCall) -> None: ...
 
     async def get(self, *, tenant_id: str, call_id: str) -> TelephonyCall | None: ...
+
+    async def list_recent(self, *, tenant_id: str, limit: int = 50) -> list[TelephonyCall]: ...
 
     async def save(self, call: TelephonyCall) -> None: ...
 
@@ -76,6 +92,18 @@ class MongoCallStore:
         )
         return TelephonyCall.model_validate(document) if document is not None else None
 
+    async def list_recent(
+        self, *, tenant_id: str, limit: int = 50
+    ) -> list[TelephonyCall]:
+        """List a tenant's call records, newest first."""
+        cursor = (
+            self._collection.find({"tenant_id": tenant_id})
+            .sort("created_at", -1)
+            .limit(max(1, limit))
+        )
+        documents = await cursor.to_list(length=max(1, limit))
+        return [TelephonyCall.model_validate(document) for document in documents]
+
     async def save(self, call: TelephonyCall) -> None:
         """Persist the full call state without moving its identifier."""
         call.updated_at = datetime.now(UTC)
@@ -102,6 +130,18 @@ class InMemoryCallStore:
 
     async def get(self, *, tenant_id: str, call_id: str) -> TelephonyCall | None:
         return self._calls.get((tenant_id, call_id))
+
+    async def list_recent(
+        self, *, tenant_id: str, limit: int = 50
+    ) -> list[TelephonyCall]:
+        """List a tenant's call records, newest first."""
+        matching = [
+            call
+            for (stored_tenant_id, _), call in self._calls.items()
+            if stored_tenant_id == tenant_id
+        ]
+        matching.sort(key=lambda call: call.created_at, reverse=True)
+        return matching[: max(1, limit)]
 
     async def save(self, call: TelephonyCall) -> None:
         self._calls[(call.tenant_id, call.call_id)] = call

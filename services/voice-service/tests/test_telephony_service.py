@@ -318,6 +318,106 @@ def test_answer_call_skips_greeting_when_agent_has_none() -> None:
     assert not provider.sent_audio(call.call_id)  # type: ignore[attr-defined]
 
 
+def test_answer_call_survives_greeting_tts_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    from voice_service.stt import MockSTTProvider
+    from voice_service.tts import TTSResult
+
+    caplog.set_level(logging.INFO, logger="voice_service.telephony.events")
+
+    class FailingGreetingTTSProvider(MockTTSProvider):
+        async def synthesize(self, **kwargs: object) -> TTSResult:
+            raise RuntimeError("tts down")
+
+    runtime = FakeAgentRuntimeClient()
+    runtime.agent = AgentConfiguration(
+        id="agent-1",
+        tenant_id="tenant-1",
+        language="en",
+        voice_id="neutral-voice",
+        greeting="Welcome to Kaari Planters. How can I help you today?",
+    )
+    manager = VoiceSessionManager(
+        stt_provider=MockSTTProvider(),
+        tts_provider=FailingGreetingTTSProvider(),
+        agent_runtime=runtime,  # type: ignore[arg-type]
+        session_store=InMemoryVoiceSessionStore(),
+    )
+    service = TelephonyService(
+        provider=MockTelephonyProvider(),  # type: ignore[arg-type]
+        call_store=InMemoryCallStore(),
+        voice_manager=manager,
+        event_publisher=RecordingEventPublisher(),
+    )
+    call = run(
+        service.create_inbound_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            caller_number="+15550001",
+            destination_number="+15550002",
+            conversation_id="conversation-1",
+        )
+    )
+
+    call = run(service.answer_call(tenant_id="tenant-1", call_id=call.call_id))
+
+    # Greeting TTS failure must not fail the call: turns can still proceed.
+    assert call.status == "active"
+    failed = [
+        record.telephony_event
+        for record in caplog.records
+        if getattr(record, "telephony_event", None) is not None
+        and record.telephony_event["event"] == "greeting_failed"
+    ]
+    assert len(failed) == 1
+    assert failed[0]["stage"] == "greeting_tts"
+
+
+def test_answer_call_emits_greeting_stage_events(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    caplog.set_level(logging.INFO, logger="voice_service.telephony.events")
+    runtime = FakeAgentRuntimeClient()
+    runtime.agent = AgentConfiguration(
+        id="agent-1",
+        tenant_id="tenant-1",
+        language="en",
+        voice_id="neutral-voice",
+        greeting="Welcome to Kaari Planters. How can I help you today?",
+    )
+    service, _ = build_service(runtime=runtime)
+    call = run(
+        service.create_inbound_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            caller_number="+15550001",
+            destination_number="+15550002",
+            conversation_id="conversation-1",
+        )
+    )
+
+    run(service.answer_call(tenant_id="tenant-1", call_id=call.call_id))
+
+    stages = [
+        record.telephony_event["event"]
+        for record in caplog.records
+        if getattr(record, "telephony_event", None) is not None
+        and record.telephony_event["event"].startswith("GREETING")
+    ]
+    assert stages == [
+        "GREETING_START",
+        "GREETING_TTS_COMPLETED",
+        "GREETING_RTP_START",
+        "GREETING_RTP_COMPLETED",
+        "GREETING_COMPLETED",
+    ]
+
+
 def test_process_audio_runs_turn_and_sends_audio_back() -> None:
     service, _ = build_service()
     call = run(
@@ -858,3 +958,138 @@ def test_greeting_delivery_survives_store_copy_semantics() -> None:
     assert len(packet) > 12
     assert packet[0] >> 6 == 2
     assert (packet[1] & 0x7F) == 0
+
+
+def test_interrupt_audio_stops_active_playout_and_keeps_call(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    from voice_service.telephony.mock_provider import MockTelephonyProvider
+    from voice_service.tts import TTSResult
+
+    caplog.set_level(logging.INFO, logger="voice_service.telephony.events")
+    caplog.set_level(logging.INFO, logger="voice_service.events")
+
+    class ChunkySlowTTSProvider:
+        provider_name = "chunky-slow"
+
+        async def synthesize(self, **kwargs: object) -> TTSResult:
+            return TTSResult(
+                audio=AudioChunk(data=b"\x01" * 960, format="pcm"),
+                provider=self.provider_name,
+                content_type="audio/pcm",
+            )
+
+        def synthesize_stream(self, **kwargs: object) -> object:
+            return self._generate()
+
+        async def _generate(self) -> object:
+            yield AudioChunk(data=b"\x01" * 480, format="pcm")
+            yield AudioChunk(data=b"\x02" * 480, format="pcm")
+
+    class GatedProvider(MockTelephonyProvider):
+        """Holds the second frame open so barge-in lands mid-playout."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.gate: asyncio.Event = asyncio.Event()
+            self.frames_seen = 0
+
+        async def send_audio_frame(
+            self, call: object, frame: AudioChunk, **kwargs: object
+        ) -> int:
+            from voice_service.telephony.models import TelephonyCall
+            from voice_service.telephony.provider import AudioOutputInterrupted
+
+            assert isinstance(call, TelephonyCall)
+            abort = kwargs.get("abort")
+            if abort is not None and abort.is_set():
+                raise AudioOutputInterrupted("interrupted")
+            self.frames_seen += 1
+            if self.frames_seen >= 2:
+                self.gate.set()
+                await asyncio.sleep(5)
+                if abort is not None and abort.is_set():
+                    raise AudioOutputInterrupted("interrupted")
+            assert isinstance(frame, AudioChunk)
+            return await super().send_audio_frame(call, frame, **kwargs)
+
+    provider = GatedProvider()
+    service, _ = build_service(provider=provider, tts=ChunkySlowTTSProvider())
+    call = run(
+        service.create_inbound_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            caller_number="+15550001",
+            destination_number="+15550002",
+            conversation_id="conversation-1",
+        )
+    )
+    call = run(service.answer_call(tenant_id="tenant-1", call_id=call.call_id))
+
+    async def main() -> object:
+        task = asyncio.create_task(
+            service.process_audio(
+                tenant_id="tenant-1",
+                call_id=call.call_id,
+                audio=AudioChunk(data=b"customer-audio", format="pcm"),
+            )
+        )
+        while provider.frames_seen < 2:
+            await asyncio.sleep(0.01)
+        interrupted = await service.interrupt_audio(
+            tenant_id="tenant-1", call_id=call.call_id
+        )
+        provider.gate.set()
+        return await task, interrupted
+
+    result, interrupted = run(main())
+
+    assert interrupted is True
+    # One frame played before the interrupt; the turn ends partial, not failed.
+    assert result.audio_packets_streamed == 1
+    assert result.audio.data == b""
+    interrupted_events = [
+        record.voice_event
+        for record in caplog.records
+        if getattr(record, "voice_event", None) is not None
+        and record.voice_event["event"] == "tts_stream_interrupted"
+    ]
+    assert len(interrupted_events) == 1
+    assert interrupted_events[0]["frames_sent"] == 1
+    # Idle interrupt is a no-op.
+    assert (
+        run(
+            service.interrupt_audio(tenant_id="tenant-1", call_id=call.call_id)
+        )
+        is False
+    )
+    # The call itself survives the interruption.
+    assert (
+        run(service.get_call(tenant_id="tenant-1", call_id=call.call_id))
+    ).status == "active"
+
+
+def test_interrupt_audio_ignores_stale_speech_outside_playout() -> None:
+    service, _ = build_service()
+    call = run(
+        service.create_inbound_call(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            caller_number="+15550001",
+            destination_number="+15550002",
+            conversation_id="conversation-1",
+        )
+    )
+    call = run(service.answer_call(tenant_id="tenant-1", call_id=call.call_id))
+
+    # No playout window open: speech-like interrupt is a harmless no-op.
+    assert (
+        run(service.interrupt_audio(tenant_id="tenant-1", call_id=call.call_id))
+        is False
+    )
+    assert (
+        run(service.interrupt_audio(tenant_id="tenant-1", call_id="missing"))
+        is False
+    )

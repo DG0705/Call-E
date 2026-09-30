@@ -4,13 +4,17 @@ The adapter owns all Asterisk-specific terminology (SIP endpoints, ARI
 channels, codecs). AgentRuntime and VoiceSessionManager never see it.
 """
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
 
 from voice_service.audio import AudioChunk
 from voice_service.telephony.asterisk.media import encode_ulaw
-from voice_service.telephony.asterisk.rtp_egress import RtpEgressSender
+from voice_service.telephony.asterisk.rtp_egress import (
+    RtpEgressAborted,
+    RtpEgressSender,
+)
 from voice_service.telephony.asterisk.rtp_ingress import RtpMediaIngress
 from voice_service.telephony.asterisk.transport import (
     AsteriskTransport,
@@ -22,6 +26,7 @@ from voice_service.telephony.observability import (
     log_telephony_event,
 )
 from voice_service.telephony.provider import (
+    AudioOutputInterrupted,
     TelephonyProviderError,
     TelephonyTransferUnavailableError,
 )
@@ -212,12 +217,14 @@ class AsteriskAdapter:
         audio: AudioChunk,
         *,
         request_id: str | None = None,
+        abort: asyncio.Event | None = None,
     ) -> None:
         """Send synthesized audio toward the phone.
 
         Live calls bound with :meth:`bind_egress` stream packetized RTP to
         the Asterisk external-media address; otherwise audio falls back to
-        the ARI play-media foundation.
+        the ARI play-media foundation. When ``abort`` is set mid-playout,
+        raises :class:`AudioOutputInterrupted` instead of failing the call.
         """
         channel_id = self._channel_for(call)
         remote = self._egress_remotes.get(channel_id)
@@ -243,7 +250,13 @@ class AsteriskAdapter:
                 ),
             )
             try:
-                sent = await self._media_egress.send(channel_id, remote, audio)
+                sent = await self._media_egress.send(
+                    channel_id, remote, audio, abort=abort
+                )
+            except RtpEgressAborted as exc:
+                raise AudioOutputInterrupted(
+                    f"Audio playout interrupted for {channel_id}."
+                ) from exc
             except Exception as exc:
                 raise TelephonyProviderError(
                     "Asterisk could not stream response audio."
@@ -285,6 +298,7 @@ class AsteriskAdapter:
         frame: AudioChunk,
         *,
         request_id: str | None = None,
+        abort: asyncio.Event | None = None,
     ) -> int:
         """Stream one 20 ms PCM frame toward the phone over bound RTP egress.
 
@@ -294,6 +308,7 @@ class AsteriskAdapter:
         first frame logs ``egress_audio_started`` (first-RTP timing); per-call
         frame totals are readable via :meth:`streamed_frame_count` for the
         end-of-stream summary. Returns datagrams sent (0 when unbound).
+        Raises :class:`AudioOutputInterrupted` when ``abort`` is set.
         """
         channel_id = self._channel_for(call)
         remote = self._egress_remotes.get(channel_id)
@@ -320,7 +335,13 @@ class AsteriskAdapter:
                 ),
             )
         try:
-            sent = await self._media_egress.send_frame(channel_id, remote, frame)
+            sent = await self._media_egress.send_frame(
+                channel_id, remote, frame, abort=abort
+            )
+        except RtpEgressAborted as exc:
+            raise AudioOutputInterrupted(
+                f"Audio playout interrupted for {channel_id}."
+            ) from exc
         except Exception as exc:
             raise TelephonyProviderError(
                 "Asterisk could not stream response audio."
@@ -333,6 +354,16 @@ class AsteriskAdapter:
     def streamed_frame_count(self, channel_id: str) -> int:
         """Return paced RTP datagrams streamed for a channel this call."""
         return self._egress_frame_counts.get(channel_id, 0)
+
+    def is_playing(self, call: TelephonyCall) -> bool:
+        """Report whether RTP is currently leaving for this call's channel."""
+        if self._media_egress is None:
+            return False
+        try:
+            channel_id = self._channel_for(call)
+        except Exception:
+            return False
+        return self._media_egress.is_playing(channel_id)
 
     def _adopt_egress_marker(
         self, call: TelephonyCall, channel_id: str

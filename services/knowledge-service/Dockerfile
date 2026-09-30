@@ -33,6 +33,9 @@ COPY --from=builder --chown=app:app /app/.venv ./.venv
 COPY --from=builder --chown=app:app /app/shared/src ./shared/src
 COPY --from=builder --chown=app:app /app/services/knowledge-service/src ./services/knowledge-service/src
 
+# Writable upload staging for knowledge files (backed by a compose volume).
+RUN mkdir -p /data/knowledge_uploads && chown app:app /data/knowledge_uploads
+
 USER app
 
 EXPOSE 8000

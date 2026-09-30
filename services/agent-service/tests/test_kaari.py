@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
+import logging
 
 import pytest
 
@@ -615,23 +616,21 @@ def test_kaari_knowledge_retriever_tenant_isolation() -> None:
 # --- Tool Registry Integration ---
 
 
-def test_kaari_tools_registered_in_combined_registry() -> None:
+def test_combined_registry_contains_only_generic_dev_tools() -> None:
     from agent_service.app import create_combined_tool_registry
 
     registry = create_combined_tool_registry()
     tool_names = [t.tool_name for t in registry.list()]
-    assert "search_products" in tool_names
-    assert "get_product_details" in tool_names
-    assert "calculate_retail_price" in tool_names
-    assert "create_sales_lead" in tool_names
     assert "get_current_time" in tool_names
+    assert "search_products" not in tool_names
+    assert "get_product_details" not in tool_names
+    assert "calculate_retail_price" not in tool_names
+    assert "create_sales_lead" not in tool_names
 
 
-def test_kaari_agent_allowed_tools_match_registry() -> None:
-    from agent_service.app import create_combined_tool_registry
-
+def test_kaari_agent_allowed_tools_match_kaari_service_registry() -> None:
     agent = create_kaari_agent()
-    registry = create_combined_tool_registry()
+    registry = KaariService().create_tool_registry()
     available = registry.available_for(agent)
     available_names = [t.tool_name for t in available]
     assert "search_products" in available_names
@@ -805,7 +804,7 @@ def test_voice_engine_can_invoke_kaari_agent() -> None:
 # --- Kaari Test Route ---
 
 
-def test_kaari_test_route_returns_response() -> None:
+def test_runtime_test_route_returns_response() -> None:
     from fastapi.testclient import TestClient
 
     from agent_service.app import create_agent_app
@@ -852,16 +851,13 @@ def test_kaari_test_route_returns_response() -> None:
         agent_service=service,
         agent_runtime=runtime,
         tool_registry=kaari_service.create_tool_registry(),
-        kaari_service=kaari_service,
     )
     client = TestClient(app)
 
     response = client.post(
-        "/api/v1/kaari/sales/test",
+        "/api/v1/agents/kaari-sales-agent/runtime/test?tenant_id=kaari-planters",
         headers={"X-Request-ID": "kaari-test-1"},
         json={
-            "tenant_id": KAARI_TENANT_ID,
-            "agent_id": "kaari-sales-agent",
             "conversation_id": "conv-route-1",
             "message": "I need 10 premium planters for my office",
         },
@@ -874,7 +870,7 @@ def test_kaari_test_route_returns_response() -> None:
     assert body["request_id"] == "kaari-test-1"
 
 
-def test_kaari_test_route_404_for_unknown_agent() -> None:
+def test_runtime_test_route_404_for_unknown_agent() -> None:
     from fastapi.testclient import TestClient
     from agent_service.app import create_agent_app
 
@@ -882,17 +878,15 @@ def test_kaari_test_route_404_for_unknown_agent() -> None:
     client = TestClient(app)
 
     response = client.post(
-        "/api/v1/kaari/sales/test",
+        "/api/v1/agents/nonexistent-agent/runtime/test?tenant_id=kaari-planters",
         json={
-            "tenant_id": "kaari-planters",
-            "agent_id": "nonexistent-agent",
             "conversation_id": "conv-1",
             "message": "Hello",
         },
     )
 
     assert response.status_code == 404
-    assert response.json()["error"]["code"] == "kaari_agent_not_found"
+    assert response.json()["error"]["code"] == "agent_not_found"
 
 
 # --- End-to-End Mock Call ---
@@ -1794,11 +1788,11 @@ def test_kaari_agent_config_is_routing_compatible() -> None:
 
 
 # ============================================================
-# 8. DEVELOPMENT DEMO ENDPOINT — ENHANCED
+# 8. KAARI RUNTIME BEHAVIOR VIA GENERIC ROUTE
 # ============================================================
 
 
-def test_kaari_test_route_response_structure() -> None:
+def test_kaari_runtime_response_structure() -> None:
     from fastapi.testclient import TestClient
     from agent_service.app import create_agent_app
     from agent_service.repositories import AgentRepository
@@ -1839,15 +1833,12 @@ def test_kaari_test_route_response_structure() -> None:
         agent_service=service,
         agent_runtime=runtime,
         tool_registry=kaari_service.create_tool_registry(),
-        kaari_service=kaari_service,
     )
     client = TestClient(app)
 
     response = client.post(
-        "/api/v1/kaari/sales/test",
+        "/api/v1/agents/kaari-sales-agent/runtime/test?tenant_id=kaari-planters",
         json={
-            "tenant_id": KAARI_TENANT_ID,
-            "agent_id": "kaari-sales-agent",
             "conversation_id": "conv-demo-1",
             "message": "I need 10 modern planters around 2 feet for my office",
         },
@@ -1857,14 +1848,10 @@ def test_kaari_test_route_response_structure() -> None:
     body = response.json()
     assert body["conversation_id"] == "conv-demo-1"
     assert body["response"]
-    assert isinstance(body["tool_calls"], list)
-    assert isinstance(body["tool_results"], list)
-    assert isinstance(body["products_matched"], list)
-    assert "lead_id" in body
-    assert "pricing" in body
+    assert body["agent_id"] == "kaari-sales-agent"
 
 
-def test_kaari_test_route_with_planned_tool_calls() -> None:
+def test_runtime_test_route_with_planned_tool_calls() -> None:
     from fastapi.testclient import TestClient
     from agent_service.app import create_agent_app
     from agent_service.repositories import AgentRepository
@@ -1914,15 +1901,12 @@ def test_kaari_test_route_with_planned_tool_calls() -> None:
         agent_service=service,
         agent_runtime=runtime,
         tool_registry=kaari_service.create_tool_registry(),
-        kaari_service=kaari_service,
     )
     client = TestClient(app)
 
     response = client.post(
-        "/api/v1/kaari/sales/test",
+        "/api/v1/agents/kaari-sales-agent/runtime/test?tenant_id=kaari-planters",
         json={
-            "tenant_id": KAARI_TENANT_ID,
-            "agent_id": "kaari-sales-agent",
             "conversation_id": "conv-tool-test",
             "message": "show me neo collection planters",
         },
@@ -1930,10 +1914,8 @@ def test_kaari_test_route_with_planned_tool_calls() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert len(body["tool_calls"]) == 1
-    assert body["tool_calls"][0]["tool_name"] == "search_products"
-    assert body["tool_calls"][0]["success"] is True
-    assert len(body["products_matched"]) >= 1
+    assert body["tool_iterations"] == 1
+    assert body["response"]
 
 
 # ============================================================
@@ -2048,6 +2030,366 @@ def test_runtime_no_tool_history_when_mock_responds_directly() -> None:
     )
 
     assert result.tool_execution_history == []
+
+
+def _streaming_test_agent() -> Agent:
+    agent = create_kaari_agent()
+    return agent.model_copy(update={"knowledge_sources": []})
+
+
+def test_groq_stream_assembles_fragmented_tool_call_once() -> None:
+    from agent_service.runtime.groq_provider import GroqProvider
+    from agent_service.runtime.provider import LLMStreamEvent
+
+    class FakeDelta:
+        def __init__(self, content=None, tool_calls=None) -> None:
+            self.content = content
+            self.tool_calls = tool_calls
+
+    class FakeFunction:
+        def __init__(self, name=None, arguments=None) -> None:
+            self.name = name
+            self.arguments = arguments
+
+    class FakeToolCall:
+        def __init__(self, index, id=None, name=None, arguments=None) -> None:
+            self.index = index
+            self.id = id
+            self.function = FakeFunction(name, arguments)
+
+    class FakeChoice:
+        def __init__(self, delta) -> None:
+            self.delta = delta
+
+    class FakeChunk:
+        def __init__(self, delta, usage=None) -> None:
+            self.choices = [FakeChoice(delta)]
+            self.usage = usage
+
+    class FakeCompletions:
+        # Mirrors the real Groq SDK: unexpected keyword arguments raise
+        # TypeError instead of being silently accepted.
+        _KNOWN_KWARGS = {"model", "messages", "tools", "stream"}
+
+        def __init__(self) -> None:
+            self.kwargs: dict[str, object] = {}
+
+        async def create(self, **kwargs: object) -> object:
+            unknown = set(kwargs) - self._KNOWN_KWARGS
+            if unknown:
+                raise TypeError(
+                    f"create() got unexpected keyword arguments {sorted(unknown)}"
+                )
+            self.kwargs = kwargs
+
+            async def generate() -> object:
+                yield FakeChunk(FakeDelta(content="The price "))
+                yield FakeChunk(FakeDelta(content="is here."))
+                yield FakeChunk(
+                    FakeDelta(
+                        tool_calls=[FakeToolCall(0, id="call-1", name="search_products")]
+                    )
+                )
+                yield FakeChunk(
+                    FakeDelta(
+                        tool_calls=[
+                            FakeToolCall(0, arguments='{"query": "planter"}')
+                        ]
+                    )
+                )
+                # Incomplete fragment: no id/name, must be dropped.
+                yield FakeChunk(
+                    FakeDelta(tool_calls=[FakeToolCall(1, arguments='{"x": 1}')])
+                )
+
+            return generate()
+
+    completions = FakeCompletions()
+    chat = type("Chat", (), {"completions": completions})()
+    client = type("Client", (), {"chat": chat})()
+    provider = GroqProvider(
+        api_key="secret", model="test-model", client=client  # type: ignore[arg-type]
+    )
+
+    async def main() -> list[LLMStreamEvent]:
+        return [
+            event
+            async for event in provider.generate_response_stream(
+                system_instruction="sys", messages=[], tools=[]
+            )
+        ]
+
+    events = run(main())
+
+    assert completions.kwargs.get("stream") is True
+    texts = [event.text_delta for event in events if event.text_delta]
+    assert texts == ["The price ", "is here."]
+    completions_events = [event for event in events if event.done]
+    assert len(completions_events) == 1
+    full = completions_events[0].full_response
+    assert full is not None
+    assert full.text == "The price is here."
+    assert len(full.tool_calls) == 1
+    assert full.tool_calls[0].call_id == "call-1"
+    assert full.tool_calls[0].tool_name == "search_products"
+    assert full.tool_calls[0].arguments == {"query": "planter"}
+
+
+def test_runtime_records_first_token_and_turn_timings(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    from agent_service.repositories import AgentRepository
+    from agent_service.runtime import AgentRuntime, MockLLMProvider
+    from agent_service.runtime.context import InMemoryConversationStore
+    from agent_service.services import AgentService
+
+    caplog.set_level(logging.INFO, logger="agent_service.runtime.events")
+
+    class FakeAgentCollection:
+        def __init__(self, agent: Agent) -> None:
+            self._agent = agent
+        async def find_one(self, filter: dict[str, str]) -> dict[str, object] | None:
+            if filter.get("_id") == self._agent.id and filter.get("tenant_id") == self._agent.tenant_id:
+                return self._agent.model_dump(by_alias=True)
+            return None
+
+    class FakeCoreDatabase:
+        def __init__(self, agent: Agent) -> None:
+            self.agents = FakeAgentCollection(agent)
+        async def list_collection_names(self, **kwargs: object) -> list[str]:
+            return ["agents"]
+        def __getitem__(self, name: str) -> FakeAgentCollection:
+            return self.agents
+
+    agent = _streaming_test_agent()
+    service = AgentService(AgentRepository(FakeCoreDatabase(agent)))
+    runtime = AgentRuntime(
+        configuration_loader=service,
+        provider=MockLLMProvider(),
+        conversation_store=InMemoryConversationStore(),
+    )
+
+    run(
+        runtime.respond(
+            tenant_id=KAARI_TENANT_ID,
+            agent_id="kaari-sales-agent",
+            conversation_id="conv-timing-1",
+            message="hello there, friend?",
+        )
+    )
+
+    completed = next(
+        record.agent_event
+        for record in caplog.records
+        if record.agent_event["event"] == "runtime_turn_completed"
+    )
+    assert completed["knowledge_ms"] >= 0
+    assert completed["llm_ms"] >= 0
+    assert completed["tool_ms"] >= 0
+    assert completed["tool_iterations"] == 0
+    assert completed["turn_ms"] >= 0
+    # Buffered mock provider yields one completion event: first token equals
+    # the whole generation, and the echo ends with "?" so the first sentence
+    # marker is present too.
+    assert completed["llm_first_token_ms"] is not None
+    assert completed["llm_first_sentence_ms"] is not None
+
+
+def test_runtime_bounds_tool_iterations_to_default() -> None:
+    from agent_service.repositories import AgentRepository
+    from agent_service.runtime import AgentRuntime, MockLLMProvider
+    from agent_service.runtime.context import InMemoryConversationStore
+    from agent_service.runtime.provider import LLMResponse
+    from agent_service.runtime.tools import ProviderToolCall
+    from agent_service.services import AgentService
+    from agent_service.runtime.config import load_llm_settings
+
+    assert load_llm_settings().max_tool_iterations == 3
+
+    class AlwaysToolsProvider:
+        provider_name = "always-tools"
+        model_name = "test"
+
+        async def generate_response(self, **kwargs: object) -> LLMResponse:
+            return LLMResponse(
+                text="",
+                provider_name=self.provider_name,
+                model_name=self.model_name,
+                tool_calls=[
+                    ProviderToolCall(
+                        call_id="loop-1",
+                        tool_name="get_current_time",
+                        arguments={},
+                    )
+                ],
+            )
+
+    class FakeAgentCollection:
+        def __init__(self, agent: Agent) -> None:
+            self._agent = agent
+        async def find_one(self, filter: dict[str, str]) -> dict[str, object] | None:
+            if filter.get("_id") == self._agent.id and filter.get("tenant_id") == self._agent.tenant_id:
+                return self._agent.model_dump(by_alias=True)
+            return None
+
+    class FakeCoreDatabase:
+        def __init__(self, agent: Agent) -> None:
+            self.agents = FakeAgentCollection(agent)
+        async def list_collection_names(self, **kwargs: object) -> list[str]:
+            return ["agents"]
+        def __getitem__(self, name: str) -> FakeAgentCollection:
+            return self.agents
+
+    service = AgentService(AgentRepository(FakeCoreDatabase(_streaming_test_agent())))
+    runtime = AgentRuntime(
+        configuration_loader=service,
+        provider=AlwaysToolsProvider(),  # type: ignore[arg-type]
+        conversation_store=InMemoryConversationStore(),
+        tool_registry=KaariService().create_tool_registry(),
+    )
+
+    result = run(
+        runtime.respond(
+            tenant_id=KAARI_TENANT_ID,
+            agent_id="kaari-sales-agent",
+            conversation_id="conv-bound-1",
+            message="hello",
+        )
+    )
+
+    assert len(result.tool_execution_history) == 3
+    assert result.text == "Tool execution limit exceeded."
+
+
+def test_has_sentence_end_detects_speakable_segments() -> None:
+    from agent_service.runtime.runtime import _has_sentence_end
+
+    assert _has_sentence_end("DEW 28 is Rs 7,300.") is True
+    assert _has_sentence_end("Hello world, how are") is False
+    assert _has_sentence_end("Hi") is False
+    assert _has_sentence_end('{"tool": "x"}') is False
+    assert _has_sentence_end("First part. Second") is True
+
+
+def test_runtime_emits_rag_stage_events(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from agent_service.repositories import AgentRepository
+    from agent_service.runtime import AgentRuntime, MockLLMProvider
+    from agent_service.runtime.context import InMemoryConversationStore
+    from agent_service.services import AgentService
+
+    caplog.set_level(logging.INFO, logger="agent_service.runtime.events")
+
+    class FakeAgentCollection:
+        def __init__(self, agent: Agent) -> None:
+            self._agent = agent
+        async def find_one(self, filter: dict[str, str]) -> dict[str, object] | None:
+            if filter.get("_id") == self._agent.id and filter.get("tenant_id") == self._agent.tenant_id:
+                return self._agent.model_dump(by_alias=True)
+            return None
+
+    class FakeCoreDatabase:
+        def __init__(self, agent: Agent) -> None:
+            self.agents = FakeAgentCollection(agent)
+        async def list_collection_names(self, **kwargs: object) -> list[str]:
+            return ["agents"]
+        def __getitem__(self, name: str) -> FakeAgentCollection:
+            return self.agents
+
+    service = AgentService(
+        AgentRepository(FakeCoreDatabase(create_kaari_agent()))
+    )
+    runtime = AgentRuntime(
+        configuration_loader=service,
+        provider=MockLLMProvider(),
+        conversation_store=InMemoryConversationStore(),
+        tool_registry=KaariService().create_tool_registry(),
+        knowledge_retriever=KaariService().create_knowledge_retriever(),
+    )
+
+    run(
+        runtime.respond(
+            tenant_id=KAARI_TENANT_ID,
+            agent_id="kaari-sales-agent",
+            conversation_id="conv-rag-1",
+            message="tell me about Neo",
+        )
+    )
+
+    events = [record.agent_event["event"] for record in caplog.records]
+    assert "RAG_START" in events
+    completed = next(
+        record.agent_event
+        for record in caplog.records
+        if record.agent_event["event"] == "RAG_COMPLETED"
+    )
+    assert completed["duration_ms"] >= 0
+    assert completed["chunks"] >= 1
+
+
+def test_runtime_falls_back_to_buffered_when_stream_setup_fails() -> None:
+    """A client/SDK signature mismatch must not fail the turn.
+
+    Regression test for the production incident where stream_options broke
+    every LLM call: the first stream event raising TypeError falls back to
+    the buffered call and still returns the answer.
+    """
+    from agent_service.repositories import AgentRepository
+    from agent_service.runtime import AgentRuntime, MockLLMProvider
+    from agent_service.runtime.context import InMemoryConversationStore
+    from agent_service.runtime.provider import LLMResponse
+    from agent_service.services import AgentService
+
+    class BrokenStreamProvider(MockLLMProvider):
+        def synthesize_stream(self, **kwargs: object) -> object:
+            raise AssertionError("wrong hook")
+
+        def generate_response_stream(self, **kwargs: object) -> object:
+            return self._broken()
+
+        async def _broken(self) -> object:
+            raise TypeError("create() got an unexpected keyword argument")
+            yield
+
+    class FakeAgentCollection:
+        def __init__(self, agent: Agent) -> None:
+            self._agent = agent
+        async def find_one(self, filter: dict[str, str]) -> dict[str, object] | None:
+            if filter.get("_id") == self._agent.id and filter.get("tenant_id") == self._agent.tenant_id:
+                return self._agent.model_dump(by_alias=True)
+            return None
+
+    class FakeCoreDatabase:
+        def __init__(self, agent: Agent) -> None:
+            self.agents = FakeAgentCollection(agent)
+        async def list_collection_names(self, **kwargs: object) -> list[str]:
+            return ["agents"]
+        def __getitem__(self, name: str) -> FakeAgentCollection:
+            return self.agents
+
+    service = AgentService(
+        AgentRepository(FakeCoreDatabase(_streaming_test_agent()))
+    )
+    runtime = AgentRuntime(
+        configuration_loader=service,
+        provider=BrokenStreamProvider(),
+        conversation_store=InMemoryConversationStore(),
+    )
+
+    result = run(
+        runtime.respond(
+            tenant_id=KAARI_TENANT_ID,
+            agent_id="kaari-sales-agent",
+            conversation_id="conv-fallback-1",
+            message="hello?",
+        )
+    )
+
+    assert result.text == "Mock response: hello?"
+    assert isinstance(result, LLMResponse)
 
 
 # ============================================================

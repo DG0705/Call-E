@@ -29,6 +29,7 @@ class RuntimeResult(BaseModel):
     usage: dict[str, Any] = Field(default_factory=dict)
     conversation_id: str | None = None
     agent_id: str | None = None
+    tool_iterations: int = 0
 
 
 class AgentRuntimeClient(Protocol):
@@ -85,6 +86,7 @@ class AgentRuntimeHttpClient:
             model_name=payload["model"],
             conversation_id=payload["conversation_id"],
             agent_id=payload["agent_id"],
+            tool_iterations=int(payload.get("tool_iterations", 0) or 0),
         )
 
     async def close(self) -> None:

@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { clsx } from "clsx";
+import { getWorkspaceProfile } from "@/lib/workspace";
 
 interface NavItem {
   label: string;
@@ -50,7 +51,6 @@ const NAV: { section?: string; items: NavItem[] }[] = [
         children: [
           { label: "Live Calls", href: "/calls/live" },
           { label: "Call History", href: "/calls/history" },
-          { label: "Recordings", href: "/calls/history" },
         ],
       },
       { label: "Knowledge", href: "/knowledge", icon: <BookOpen size={18} /> },
@@ -222,6 +222,10 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
+  // Workspace-level identity: no authenticated-user endpoint exists yet, so
+  // the header shows the real tenant workspace (see lib/workspace.ts) rather
+  // than a fabricated person.
+  const profile = getWorkspaceProfile();
   return (
     <header className="sticky top-0 z-20 border-b border-line-200 bg-cream-50/90 backdrop-blur">
       <div className="flex h-16 items-center gap-3 px-4 sm:px-8">
@@ -259,15 +263,16 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
           </button>
           <button
             type="button"
-            aria-label="Account menu"
+            aria-label={`Workspace menu for ${profile.label}`}
+            title={profile.tenantId}
             className="ml-1 flex items-center gap-2 rounded-lg p-1.5 hover:bg-cream-100"
           >
             <span className="flex size-8 items-center justify-center rounded-full bg-brand-700 text-xs font-semibold text-white">
-              AR
+              {profile.initials}
             </span>
             <span className="hidden text-left text-xs leading-tight md:block">
-              <span className="block font-medium text-ink-900">Aarav Rao</span>
-              <span className="block text-ink-500">Workspace owner</span>
+              <span className="block font-medium text-ink-900">{profile.label}</span>
+              <span className="block text-ink-500">{profile.sublabel}</span>
             </span>
           </button>
         </div>

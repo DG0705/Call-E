@@ -50,6 +50,16 @@ class FailingSTTClient:
         return _fake_response(status=401, json={"error": "unauthorized"})
 
 
+class GarbageBodySTTClient:
+    """Fake client answering 200 with a non-JSON body (overloaded proxy)."""
+
+    async def post(
+        self, url: str, *, content: object, params: dict[str, str], headers: dict[str, str]
+    ) -> httpx.Response:
+        request = httpx.Request("POST", "https://example.invalid/")
+        return httpx.Response(200, content=b"<html>busy</html>", request=request)
+
+
 class RecordingTTSClient:
     """Fake HTTP client capturing the request for ElevenLabs assertions."""
 
@@ -245,6 +255,19 @@ def test_deepgram_pcm_uses_linear16_encoding() -> None:
 def test_deepgram_provider_requires_api_key() -> None:
     with pytest.raises(ValueError):
         DeepgramSTTProvider(api_key="")
+
+
+def test_deepgram_non_json_body_becomes_provider_error() -> None:
+    from voice_service.stt_providers import STTProviderError
+
+    provider = DeepgramSTTProvider(api_key="secret", client=GarbageBodySTTClient())  # type: ignore[arg-type]
+
+    with pytest.raises(STTProviderError):
+        run(
+            provider.transcribe(
+                AudioChunk(data=b"\x00\x01" * 80, format="pcm", sample_rate=8000)
+            )
+        )
 
 
 # --- ElevenLabs TTS ---

@@ -29,6 +29,7 @@ class Agent(BaseModel):
     id: str = Field(validation_alias="_id")
     tenant_id: str
     name: str
+    description: str = ""
     role: str = "assistant"
     status: str = "active"
     system_prompt: str = ""

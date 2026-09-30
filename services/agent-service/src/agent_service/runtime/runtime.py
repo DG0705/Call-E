@@ -1,6 +1,8 @@
 """The reusable, provider-neutral agent runtime."""
 
 import logging
+import time
+from collections.abc import AsyncIterator
 from typing import Protocol
 
 from pydantic import BaseModel, Field
@@ -19,7 +21,7 @@ from agent_service.runtime.observability import (
     AGENT_EVENT_LOGGER,
     log_agent_event,
 )
-from agent_service.runtime.provider import LLMProvider, LLMResponse
+from agent_service.runtime.provider import LLMProvider, LLMResponse, LLMStreamEvent
 from agent_service.runtime.tools import (
     ProviderToolCall,
     ToolCall,
@@ -70,7 +72,7 @@ class AgentRuntime:
         provider: LLMProvider,
         conversation_store: ConversationStore,
         tool_registry: ToolRegistry | None = None,
-        max_tool_iterations: int = 5,
+        max_tool_iterations: int = 3,
         knowledge_retriever: KnowledgeRetriever | None = None,
         knowledge_top_k: int = 3,
         logger: logging.Logger | None = None,
@@ -109,7 +111,17 @@ class AgentRuntime:
             agent_id=agent_id,
             conversation_id=conversation_id,
         )
-        turn_instruction = await self._build_turn_instruction(agent, message)
+        turn_start = time.monotonic()
+        knowledge_ms = 0
+        llm_ms = 0
+        first_token_holder: dict[str, int] = {}
+        first_sentence_holder: dict[str, int] = {}
+        tool_ms = 0
+        knowledge_start = time.monotonic()
+        turn_instruction = await self._build_turn_instruction(
+            agent, message, conversation_id=conversation_id
+        )
+        knowledge_ms = int((time.monotonic() - knowledge_start) * 1000)
         context = await self._conversation_store.get(
             tenant_id=tenant_id, agent_id=agent_id, conversation_id=conversation_id
         )
@@ -125,9 +137,22 @@ class AgentRuntime:
                 ],
             )
         context.messages.append(ConversationMessage(role="user", content=message))
-        provider_response = await self._generate(
-            agent, context, system_instruction=turn_instruction
-        )
+        async def _timed_generate() -> LLMResponse:
+            start = time.monotonic()
+            try:
+                return await self._generate_streaming(
+                    agent,
+                    context,
+                    system_instruction=turn_instruction,
+                    llm_start=start,
+                    first_token_ms=first_token_holder,
+                    first_sentence_ms=first_sentence_holder,
+                )
+            finally:
+                nonlocal llm_ms
+                llm_ms += int((time.monotonic() - start) * 1000)
+
+        provider_response = await _timed_generate()
         tool_history: list[dict[str, object]] = []
         iterations = 0
         while provider_response.tool_calls:
@@ -156,17 +181,21 @@ class AgentRuntime:
                     call_id=provider_call.call_id,
                     success=None,
                 )
-                result = await self._tool_engine.execute(
-                    agent=agent,
-                    call=ToolCall(
-                        tool_name=provider_call.tool_name,
-                        arguments=provider_call.arguments,
-                        call_id=provider_call.call_id,
-                        tenant_id=tenant_id,
-                        agent_id=agent_id,
-                        conversation_id=conversation_id,
-                    ),
-                )
+                tool_start = time.monotonic()
+                try:
+                    result = await self._tool_engine.execute(
+                        agent=agent,
+                        call=ToolCall(
+                            tool_name=provider_call.tool_name,
+                            arguments=provider_call.arguments,
+                            call_id=provider_call.call_id,
+                            tenant_id=tenant_id,
+                            agent_id=agent_id,
+                            conversation_id=conversation_id,
+                        ),
+                    )
+                finally:
+                    tool_ms += int((time.monotonic() - tool_start) * 1000)
                 log_agent_event(
                     self._logger,
                     "tool_completed",
@@ -187,9 +216,7 @@ class AgentRuntime:
                     "error": result.error,
                 })
             iterations += 1
-            provider_response = await self._generate(
-                agent, context, system_instruction=turn_instruction
-            )
+            provider_response = await _timed_generate()
         context.messages.append(
             ConversationMessage(role="assistant", content=provider_response.text)
         )
@@ -202,6 +229,20 @@ class AgentRuntime:
             conversation_id=conversation_id,
             provider_name=provider_response.provider_name,
             model_name=provider_response.model_name,
+        )
+        log_agent_event(
+            self._logger,
+            "runtime_turn_completed",
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            conversation_id=conversation_id,
+            knowledge_ms=knowledge_ms,
+            llm_ms=llm_ms,
+            llm_first_token_ms=first_token_holder.get("ms"),
+            llm_first_sentence_ms=first_sentence_holder.get("ms"),
+            tool_ms=tool_ms,
+            tool_iterations=iterations,
+            turn_ms=int((time.monotonic() - turn_start) * 1000),
         )
         return RuntimeResult(
             conversation_id=conversation_id,
@@ -224,16 +265,117 @@ class AgentRuntime:
             tools=tools,
         )
 
-    async def _build_turn_instruction(self, agent: Agent, query: str) -> str:
+    async def _generate_streaming(
+        self,
+        agent: Agent,
+        context: ConversationContext,
+        *,
+        system_instruction: str,
+        llm_start: float,
+        first_token_ms: dict[str, int],
+        first_sentence_ms: dict[str, int],
+    ) -> LLMResponse:
+        """Consume the provider stream, timing first token and first sentence.
+
+        Only the terminal completion feeds the tool loop, so partial tool
+        fragments can never execute. Providers without streaming fall back to
+        their buffered default. First-sentence timing marks when a speakable
+        segment exists; the complete response is still returned (sentence
+        handoff over the service boundary is future work).
+        """
+        tools = (
+            self._tool_engine.registry.available_for(agent)
+            if self._tool_engine is not None
+            else []
+        )
+        stream = getattr(self._provider, "generate_response_stream", None)
+        if stream is None:
+            buffered_start = time.monotonic()
+            response = await self._generate(
+                agent, context, system_instruction=system_instruction
+            )
+            buffered_ms = int((time.monotonic() - buffered_start) * 1000)
+            first_token_ms["ms"] = buffered_ms
+            if _has_sentence_end(response.text):
+                first_sentence_ms["ms"] = buffered_ms
+            return response
+        text_so_far: list[str] = []
+        completed: LLMResponse | None = None
+        try:
+            events = stream(
+                system_instruction=system_instruction,
+                messages=context.messages,
+                tools=tools,
+            )
+            first_event = await events.__anext__()
+        except (TypeError, AttributeError, StopAsyncIteration):
+            # Provider cannot stream with this client (e.g. SDK signature
+            # mismatch): fall back to the buffered call rather than failing.
+            buffered_start = time.monotonic()
+            response = await self._generate(
+                agent, context, system_instruction=system_instruction
+            )
+            buffered_ms = int((time.monotonic() - buffered_start) * 1000)
+            first_token_ms["ms"] = buffered_ms
+            if _has_sentence_end(response.text):
+                first_sentence_ms["ms"] = buffered_ms
+            return response
+
+        async def _chained() -> AsyncIterator[LLMStreamEvent]:
+            yield first_event
+            async for event in events:
+                yield event
+
+        async for event in _chained():
+            if event.text_delta:
+                if "ms" not in first_token_ms:
+                    first_token_ms["ms"] = int(
+                        (time.monotonic() - llm_start) * 1000
+                    )
+                text_so_far.append(event.text_delta)
+                if "ms" not in first_sentence_ms and _has_sentence_end(
+                    "".join(text_so_far)
+                ):
+                    first_sentence_ms["ms"] = int(
+                        (time.monotonic() - llm_start) * 1000
+                    )
+            if event.done and event.full_response is not None:
+                completed = event.full_response
+        if completed is None:
+            raise ValueError("LLM stream ended without a completion event.")
+        return completed
+
+    async def _build_turn_instruction(
+        self, agent: Agent, query: str, *, conversation_id: str
+    ) -> str:
         """Build the per-turn instruction, grounding it with agent knowledge."""
         instruction = self._build_system_instruction(agent)
         if self._knowledge_retriever is None or not agent.knowledge_sources:
             return instruction
+        log_agent_event(
+            self._logger,
+            "RAG_START",
+            tenant_id=agent.tenant_id,
+            agent_id=agent.id,
+            conversation_id=conversation_id,
+            message="RAG_START",
+        )
+        rag_start = time.monotonic()
         retrieved = await self._knowledge_retriever.retrieve(
             tenant_id=agent.tenant_id,
             agent_id=agent.id,
             query=query,
             top_k=self._knowledge_top_k,
+        )
+        log_agent_event(
+            self._logger,
+            "RAG_COMPLETED",
+            tenant_id=agent.tenant_id,
+            agent_id=agent.id,
+            conversation_id=conversation_id,
+            duration_ms=int((time.monotonic() - rag_start) * 1000),
+            chunks=len(retrieved),
+            message="RAG_COMPLETED",
         )
         knowledge = build_knowledge_context(retrieved)
         if knowledge:
@@ -297,3 +439,21 @@ class AgentRuntime:
         if agent.goals:
             parts.append(f"Goals: {', '.join(agent.goals)}.")
         return "\n".join(parts)
+
+
+def _has_sentence_end(text: str) -> bool:
+    """Detect a completed speakable sentence without splitting words.
+
+    A sentence end is `.`, `!`, or `?` followed by whitespace or the end of
+    the buffer, with at least a few words buffered (so decimals and fragments
+    do not count). Tool-call JSON never matches this shape.
+    """
+    stripped = text.strip()
+    if len(stripped.split()) < 3:
+        return False
+    for index, char in enumerate(stripped):
+        if char in ".!?":
+            rest = stripped[index + 1 :]
+            if not rest or rest[0].isspace():
+                return True
+    return False

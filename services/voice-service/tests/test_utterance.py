@@ -116,3 +116,112 @@ def test_flush_returns_buffered_speech() -> None:
     assert flushed is not None
     assert len(flushed.data) == 10 * 320
     assert accumulator.flush() is None
+
+
+def feed_frames(accumulator: UtteranceAccumulator, frames: list[AudioChunk]) -> AudioChunk | None:
+    completed: AudioChunk | None = None
+    for frame in frames:
+        result = accumulator.feed(frame)
+        if result is not None:
+            completed = result
+    return completed
+
+
+def test_endpoint_short_question() -> None:
+    accumulator = UtteranceAccumulator(
+        config=UtteranceConfig(
+            min_utterance_ms=400, end_silence_ms=400, max_utterance_ms=15000
+        )
+    )
+    speech_ms = 0
+    completed = None
+    for _ in range(200):
+        frame = speech_frame() if speech_ms < 600 else silence_frame()
+        completed = accumulator.feed(frame)
+        if completed is not None:
+            break
+        speech_ms += 20 if speech_ms < 600 else 0
+
+    assert completed is not None
+    # 600 ms speech + ~400 ms end silence: endpointing follows speech end.
+    total_ms = len(completed.data) / 320 * 20
+    assert 900 <= total_ms <= 1200
+
+
+def test_endpoint_pause_in_sentence_does_not_split() -> None:
+    accumulator = UtteranceAccumulator(
+        config=UtteranceConfig(
+            min_utterance_ms=400, end_silence_ms=800, max_utterance_ms=15000
+        )
+    )
+    frames = (
+        [speech_frame() for _ in range(20)]
+        + [silence_frame() for _ in range(15)]
+        + [speech_frame() for _ in range(20)]
+        + [silence_frame() for _ in range(45)]
+    )
+
+    completed = feed_frames(accumulator, frames)
+
+    assert completed is not None
+    # 300 ms mid-sentence pause stays below the 800 ms threshold: one utterance.
+    assert len(completed.data) / 320 * 20 >= 1400
+
+
+def test_endpoint_longer_sentence_completes() -> None:
+    accumulator = UtteranceAccumulator(
+        config=UtteranceConfig(
+            min_utterance_ms=400, end_silence_ms=400, max_utterance_ms=15000
+        )
+    )
+    frames = [speech_frame() for _ in range(150)] + [silence_frame() for _ in range(25)]
+
+    completed = feed_frames(accumulator, frames)
+
+    assert completed is not None
+    assert len(completed.data) / 320 * 20 >= 3000
+
+
+def test_utterance_settings_load_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from voice_service.config import load_utterance_settings
+
+    monkeypatch.setenv("VOICE_END_SILENCE_MS", "350")
+    monkeypatch.setenv("VOICE_MIN_UTTERANCE_MS", "200")
+    monkeypatch.setenv("VOICE_MAX_UTTERANCE_MS", "10000")
+
+    settings = load_utterance_settings()
+
+    assert settings.end_silence_ms == 350
+    assert settings.min_utterance_ms == 200
+    assert settings.max_utterance_ms == 10000
+
+
+def test_utterance_settings_reject_non_positive_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from voice_service.config import load_utterance_settings
+
+    monkeypatch.setenv("VOICE_END_SILENCE_MS", "0")
+    monkeypatch.setenv("VOICE_END_SILENCE_MS", "not-a-number")
+
+    assert load_utterance_settings().end_silence_ms == 800
+
+
+def test_turn_settings_load_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from voice_service.config import load_turn_settings
+
+    monkeypatch.setenv("VOICE_TURN_TIMEOUT_SECONDS", "45")
+    monkeypatch.setenv("VOICE_STT_TIMEOUT_SECONDS", "10")
+    monkeypatch.setenv("VOICE_RUNTIME_TIMEOUT_SECONDS", "25")
+    monkeypatch.setenv("VOICE_TTS_TIMEOUT_SECONDS", "12")
+
+    settings = load_turn_settings()
+
+    assert settings.turn_timeout == 45.0
+    assert settings.stt_timeout == 10.0
+    assert settings.runtime_timeout == 25.0
+    assert settings.tts_timeout == 12.0

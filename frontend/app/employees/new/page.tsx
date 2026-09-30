@@ -13,11 +13,10 @@ import {
   PartyPopper,
   PhoneCall,
   Sparkles,
-  UploadCloud,
   UserRound,
-  Volume2,
 } from "lucide-react";
 import { AppShell } from "@/components/shell";
+import { ErrorState, LoadingState } from "@/components/data-states";
 import {
   Button,
   Card,
@@ -27,8 +26,10 @@ import {
   StepsIndicator,
   Textarea,
   TextInput,
-  Toggle,
 } from "@/components/ui";
+import { agentsApi, knowledgeApi } from "@/lib/api/resources";
+import { getTenantId } from "@/lib/tenant";
+import { useResource } from "@/lib/use-resource";
 import { clsx } from "clsx";
 
 const STEPS = [
@@ -50,35 +51,88 @@ const ROLE_CARDS = [
   { icon: <Sparkles size={20} />, title: "Custom", description: "Describe anything else it should do." },
 ];
 
-const CONVERSATION_STYLES = ["Professional", "Friendly", "Warm", "Direct"];
-const RESPONSE_STYLES = ["Natural", "Concise", "Detailed"];
+const CONVERSATION_STYLES = ["Professional", "Friendly", "Warm", "Direct"] as const;
+const RESPONSE_STYLES = ["Natural", "Concise", "Detailed"] as const;
+
+const PERSONALITY_BY_STYLE: Record<string, string> = {
+  Professional: "professional",
+  Friendly: "friendly and warm",
+  Warm: "warm",
+  Direct: "direct",
+};
+
+function ComingSoon({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="ml-2 inline-flex items-center rounded-full bg-cream-100 px-2 py-0.5 align-middle text-[11px] font-medium text-ink-500 ring-1 ring-inset ring-line-200">
+      {children}
+    </span>
+  );
+}
 
 export default function CreateEmployeePage() {
+  const tenantId = getTenantId();
   const [step, setStep] = useState(0);
-  const [deployed, setDeployed] = useState(false);
+  const [createdId, setCreatedId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [form, setForm] = useState({
-    name: "Sarah",
-    description: "Sales assistant for my business",
+    name: "",
+    description: "",
     role: "Sales",
     roleDescription: "",
+    knowledgeSources: [] as string[],
     convStyle: "Friendly",
     responseStyle: "Natural",
-    oneQuestion: true,
-    rememberAnswers: true,
-    noOverwhelm: true,
-    escalate: true,
-    language: "English (India)",
-    voice: "Warm female",
-    phone: "+91 98200 00000",
-    direction: "Inbound",
-    hours: "Mon–Sat, 9am–7pm",
-    timezone: "Asia/Kolkata",
+    language: "en",
+    greeting: "",
   });
 
-  const set = (key: keyof typeof form) => (value: string | boolean) =>
+  const sources = useResource(() => knowledgeApi.listSources(tenantId));
+
+  const set = (key: keyof typeof form) => (value: string | string[]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  if (deployed) {
+  function toggleSource(id: string) {
+    setForm((prev) => ({
+      ...prev,
+      knowledgeSources: prev.knowledgeSources.includes(id)
+        ? prev.knowledgeSources.filter((source) => source !== id)
+        : [...prev.knowledgeSources, id],
+    }));
+  }
+
+  const canDeploy =
+    form.name.trim().length > 0 && form.role.trim().length > 0;
+
+  async function deploy() {
+    if (!canDeploy || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const employee = await agentsApi.create({
+        tenant_id: tenantId,
+        name: form.name.trim(),
+        description: form.description.trim(),
+        role: form.role,
+        status: "active",
+        system_prompt: form.roleDescription.trim(),
+        personality:
+          PERSONALITY_BY_STYLE[form.convStyle] ?? form.convStyle.toLowerCase(),
+        language: form.language,
+        greeting: form.greeting.trim() || null,
+        knowledge_sources: form.knowledgeSources,
+      });
+      setCreatedId(employee.id);
+    } catch (error) {
+      setSaveError(
+        error instanceof Error ? error.message : "Could not create the employee.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (createdId) {
     return (
       <AppShell>
         <div className="mx-auto max-w-xl py-10 text-center">
@@ -89,17 +143,16 @@ export default function CreateEmployeePage() {
             Your AI employee is live.
           </h1>
           <p className="mt-2 text-[15px] text-ink-500">
-            {form.name} is ready to answer calls{form.phone ? ` on ${form.phone}` : ""}.
-            This demo stops before real provisioning — connect the backend
-            deploy call to go live for customers.
+            {form.name} was created in tenant {tenantId} and is ready to
+            configure for calls.
           </p>
           <div className="mt-8 flex justify-center gap-2">
             <Link href="/employees">
               <Button variant="secondary">Back to employees</Button>
             </Link>
-            <Link href="/calls/live">
+            <Link href={`/employees/${encodeURIComponent(createdId)}`}>
               <Button>
-                <PhoneCall size={16} /> Open live calls
+                <PhoneCall size={16} /> Open {form.name}
               </Button>
             </Link>
           </div>
@@ -112,7 +165,7 @@ export default function CreateEmployeePage() {
     <AppShell>
       <PageHeader
         title="Create AI Employee"
-        subtitle="Seven small steps — no code, no phone-system knowledge needed."
+        subtitle={`Creates a real employee in tenant ${tenantId}. Only settings the backend can persist are editable — the rest is marked coming soon.`}
       />
       <div className="mx-auto max-w-3xl">
         <StepsIndicator steps={STEPS} current={step} />
@@ -125,16 +178,14 @@ export default function CreateEmployeePage() {
                 <TextInput
                   value={form.name}
                   onChange={(event) => set("name")(event.target.value)}
-                  placeholder="e.g. Sarah"
+                  placeholder="e.g. Kaari Sales Assistant"
                 />
               </Field>
-              <Field
-                label="Description"
-                hint="One line your team will recognise."
-              >
+              <Field label="Description" hint="One line your team will recognise.">
                 <Textarea
                   value={form.description}
                   onChange={(event) => set("description")(event.target.value)}
+                  placeholder="e.g. Handles inbound product enquiries and lead qualification."
                 />
               </Field>
             </div>
@@ -171,11 +222,14 @@ export default function CreateEmployeePage() {
                   </button>
                 ))}
               </div>
-              <Field label="Describe what this employee should do">
+              <Field
+                label="Describe what this employee should do"
+                hint="Saved as the employee's behavior instructions."
+              >
                 <Textarea
                   value={form.roleDescription}
                   onChange={(event) => set("roleDescription")(event.target.value)}
-                  placeholder="e.g. Answer product questions for our planter store and collect name + phone for interested buyers."
+                  placeholder="e.g. Answer product questions and collect name + phone for interested buyers. Ask one question at a time."
                 />
               </Field>
             </div>
@@ -186,44 +240,51 @@ export default function CreateEmployeePage() {
               <h2 className="font-display text-xl text-ink-900">
                 What should {form.name || "your employee"} know?
               </h2>
-              <div className="grid gap-3 sm:grid-cols-3">
-                {["Upload documents", "Add website", "Add knowledge source"].map(
-                  (action) => (
-                    <button
-                      key={action}
-                      type="button"
-                      className="cursor-pointer rounded-xl border border-dashed border-line-300 p-5 text-center transition-colors hover:border-brand-400 hover:bg-brand-50/40"
-                    >
-                      <UploadCloud size={20} className="mx-auto text-ink-500" />
-                      <span className="mt-2 block text-sm font-medium text-ink-800">
-                        {action}
-                      </span>
-                      <span className="mt-0.5 block text-xs text-ink-500">
-                        PDF, DOCX, TXT
-                      </span>
-                    </button>
-                  ),
-                )}
-              </div>
-              <div>
-                <p className="mb-2 text-sm font-medium text-ink-800">
-                  Existing sources
+              {sources.loading ? (
+                <LoadingState label="knowledge sources" />
+              ) : sources.error || !sources.data ? (
+                <ErrorState
+                  message={sources.error ?? "Could not load sources."}
+                  onRetry={sources.reload}
+                />
+              ) : sources.data.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-line-300 px-5 py-8 text-center text-sm text-ink-500">
+                  No knowledge sources in this tenant yet. Add some on the{" "}
+                  <Link href="/knowledge" className="font-medium text-brand-700 hover:text-brand-800">
+                    Knowledge page
+                  </Link>
+                  , then pick them here.
                 </p>
+              ) : (
                 <ul className="divide-y divide-line-200 rounded-xl border border-line-200">
-                  {["Product catalog 2026.pdf", "Company website"].map((name) => (
-                    <li
-                      key={name}
-                      className="flex items-center gap-2 px-4 py-2.5 text-sm text-ink-700"
-                    >
-                      <Check size={15} className="text-emerald-600" />
-                      {name}
-                    </li>
-                  ))}
+                  {sources.data.map((source) => {
+                    const checked = form.knowledgeSources.includes(source.id);
+                    return (
+                      <li key={source.id}>
+                        <label className="flex cursor-pointer items-center gap-3 px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleSource(source.id)}
+                            className="size-4 accent-brand-700"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-medium text-ink-900">
+                              {source.name}
+                            </span>
+                            <span className="block text-xs text-ink-500">
+                              {source.source_type} · {source.status}
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
                 </ul>
-                <p className="mt-2 text-xs text-ink-500">
-                  Document ingestion is not connected yet — uploads are visual only in this demo.
-                </p>
-              </div>
+              )}
+              <p className="text-xs text-ink-500">
+                File uploads and website crawling live on the Knowledge page.
+              </p>
             </div>
           )}
 
@@ -233,7 +294,7 @@ export default function CreateEmployeePage() {
                 How should {form.name || "your employee"} talk?
               </h2>
               <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="Conversation style">
+                <Field label="Conversation style" hint="Saved as personality.">
                   <Select
                     value={form.convStyle}
                     onChange={(event) => set("convStyle")(event.target.value)}
@@ -243,39 +304,26 @@ export default function CreateEmployeePage() {
                     ))}
                   </Select>
                 </Field>
-                <Field label="Response style">
-                  <Select
-                    value={form.responseStyle}
-                    onChange={(event) => set("responseStyle")(event.target.value)}
-                  >
-                    {RESPONSE_STYLES.map((style) => (
-                      <option key={style}>{style}</option>
-                    ))}
-                  </Select>
-                </Field>
+                <div className="opacity-60">
+                  <Field label="Response style">
+                    <Select disabled value={form.responseStyle}>
+                      {RESPONSE_STYLES.map((style) => (
+                        <option key={style}>{style}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <ComingSoon>Coming soon</ComingSoon>
+                </div>
               </div>
-              <ul className="divide-y divide-line-200 rounded-xl border border-line-200">
-                {(
-                  [
-                    ["oneQuestion", "Ask one question at a time", "Never rapid-fire a checklist."],
-                    ["rememberAnswers", "Remember customer answers", "Never ask for the same detail twice."],
-                    ["noOverwhelm", "Don't overwhelm customers", "One or two options, never a catalogue dump."],
-                    ["escalate", "Escalate to a human when needed", "Hand off complex or upset callers."],
-                  ] as const
-                ).map(([key, label, hint]) => (
-                  <li key={key} className="flex items-center justify-between gap-4 px-4 py-3">
-                    <span>
-                      <span className="block text-sm font-medium text-ink-800">{label}</span>
-                      <span className="block text-xs text-ink-500">{hint}</span>
-                    </span>
-                    <Toggle
-                      checked={form[key] as boolean}
-                      onChange={set(key)}
-                      label={label}
-                    />
-                  </li>
-                ))}
-              </ul>
+              <div className="rounded-xl border border-line-200 bg-cream-50 p-4 opacity-70">
+                <p className="text-sm font-medium text-ink-800">
+                  Behavior rules <ComingSoon>Coming soon</ComingSoon>
+                </p>
+                <p className="mt-1 text-xs text-ink-500">
+                  One-question-at-a-time, memory and escalation controls are not
+                  separate backend fields yet — describe them in step 2 instead.
+                </p>
+              </div>
               <div className="rounded-xl bg-cream-100 p-4">
                 <p className="text-xs font-semibold uppercase tracking-wider text-ink-500">
                   Live preview
@@ -285,7 +333,7 @@ export default function CreateEmployeePage() {
                   “Sure. How many planters are you looking for?”
                 </p>
                 <p className="mt-1 text-xs text-ink-500">
-                  {form.convStyle} · {form.responseStyle} · one question, then waits.
+                  {form.convStyle} · one question, then waits.
                 </p>
               </div>
             </div>
@@ -300,68 +348,42 @@ export default function CreateEmployeePage() {
                     value={form.language}
                     onChange={(event) => set("language")(event.target.value)}
                   >
-                    <option>English (India)</option>
-                    <option>Hindi</option>
-                    <option>English (US)</option>
+                    <option value="en">English</option>
+                    <option value="hi">Hindi</option>
                   </Select>
                 </Field>
-                <Field label="Voice">
-                  <Select
-                    value={form.voice}
-                    onChange={(event) => set("voice")(event.target.value)}
-                  >
-                    <option>Warm female</option>
-                    <option>Calm male</option>
-                    <option>Energetic female</option>
-                  </Select>
-                </Field>
+                <div className="opacity-60">
+                  <Field label="Voice">
+                    <Select disabled value="Default voice">
+                      <option>Default voice</option>
+                    </Select>
+                  </Field>
+                  <ComingSoon>Coming soon</ComingSoon>
+                </div>
               </div>
-              <Button variant="secondary">
-                <Volume2 size={16} /> Preview voice
-              </Button>
-              <p className="text-xs text-ink-500">
-                Voice providers stay abstracted here — no API keys are ever shown.
-              </p>
+              <Field
+                label="Greeting"
+                hint="Spoken first when a call connects. Leave empty for no greeting."
+              >
+                <Textarea
+                  value={form.greeting}
+                  onChange={(event) => set("greeting")(event.target.value)}
+                  placeholder="e.g. Hello, thank you for calling. How can I help you today?"
+                />
+              </Field>
             </div>
           )}
 
           {step === 5 && (
             <div className="space-y-5">
-              <h2 className="font-display text-xl text-ink-900">Phone</h2>
-              <div className="grid gap-5 sm:grid-cols-2">
-                <Field label="Phone number">
-                  <TextInput
-                    value={form.phone}
-                    onChange={(event) => set("phone")(event.target.value)}
-                  />
-                </Field>
-                <Field label="Direction">
-                  <Select
-                    value={form.direction}
-                    onChange={(event) => set("direction")(event.target.value)}
-                  >
-                    <option>Inbound</option>
-                    <option>Outbound</option>
-                    <option>Both</option>
-                  </Select>
-                </Field>
-                <Field label="Working hours">
-                  <TextInput
-                    value={form.hours}
-                    onChange={(event) => set("hours")(event.target.value)}
-                  />
-                </Field>
-                <Field label="Timezone">
-                  <Select
-                    value={form.timezone}
-                    onChange={(event) => set("timezone")(event.target.value)}
-                  >
-                    <option>Asia/Kolkata</option>
-                    <option>UTC</option>
-                    <option>America/New_York</option>
-                  </Select>
-                </Field>
-              </div>
+              <h2 className="font-display text-xl text-ink-900">
+                Phone <ComingSoon>Coming soon</ComingSoon>
+              </h2>
+              <p className="rounded-xl border border-dashed border-line-300 px-5 py-8 text-center text-sm text-ink-500">
+                Phone numbers, inbound/outbound routing, working hours and
+                timezone are not configurable through the API yet. New employees
+                use the workspace&apos;s existing dev-phone inbound setup.
+              </p>
             </div>
           )}
 
@@ -371,11 +393,15 @@ export default function CreateEmployeePage() {
               <dl className="divide-y divide-line-200 rounded-xl border border-line-200">
                 {(
                   [
-                    ["Employee", `${form.name} — ${form.description}`],
-                    ["Role", form.roleDescription || form.role],
-                    ["Conversation", `${form.convStyle} · ${form.responseStyle}`],
-                    ["Voice", `${form.voice} · ${form.language}`],
-                    ["Phone", `${form.phone} · ${form.direction} · ${form.hours}`],
+                    ["Employee", form.name || "—"],
+                    ["Description", form.description || "—"],
+                    ["Role", form.role],
+                    ["Behavior", form.roleDescription || "—"],
+                    ["Knowledge", form.knowledgeSources.length ? form.knowledgeSources.join(", ") : "—"],
+                    ["Conversation", form.convStyle],
+                    ["Language", form.language],
+                    ["Greeting", form.greeting || "—"],
+                    ["Tenant", tenantId],
                   ] as const
                 ).map(([term, value]) => (
                   <div key={term} className="flex gap-4 px-4 py-3 text-sm">
@@ -384,6 +410,16 @@ export default function CreateEmployeePage() {
                   </div>
                 ))}
               </dl>
+              {!canDeploy ? (
+                <p className="text-sm text-red-700" role="alert">
+                  Give your employee a name and role before deploying.
+                </p>
+              ) : null}
+              {saveError ? (
+                <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800" role="alert">
+                  Deploy failed: {saveError} — nothing was created.
+                </p>
+              ) : null}
             </div>
           )}
 
@@ -400,15 +436,15 @@ export default function CreateEmployeePage() {
                 Continue <ArrowRight size={16} />
               </Button>
             ) : (
-              <Button onClick={() => setDeployed(true)}>
-                <Check size={16} /> Deploy AI Employee
+              <Button onClick={deploy} disabled={!canDeploy || saving}>
+                <Check size={16} /> {saving ? "Deploying…" : "Deploy AI Employee"}
               </Button>
             )}
           </div>
         </Card>
 
         <p className="mt-4 text-center text-xs text-ink-500">
-          Step {step + 1} of {STEPS.length} · Nothing is provisioned until you deploy.
+          Step {step + 1} of {STEPS.length} · Deploy creates a real employee via the backend API.
         </p>
       </div>
     </AppShell>

@@ -620,7 +620,7 @@ def test_manager_returns_spoken_fallback_when_recoverable_stage_fails(
     assert current.status == "active"
 
 
-def test_manager_marks_session_failed_when_tts_fails() -> None:
+def test_manager_keeps_session_active_when_tts_fails() -> None:
     manager = build_manager(tts=FailingTTSProvider())
     session = asyncio.run(
         manager.create_session(
@@ -628,22 +628,69 @@ def test_manager_marks_session_failed_when_tts_fails() -> None:
         )
     )
 
-    with pytest.raises(PlatformError) as excinfo:
-        asyncio.run(
-            manager.process_audio_input(
-                tenant_id="tenant-1",
-                session_id=session.session_id,
-                audio=AudioChunk(data=b"audio", format="pcm"),
-            )
+    result = asyncio.run(
+        manager.process_audio_input(
+            tenant_id="tenant-1",
+            session_id=session.session_id,
+            audio=AudioChunk(data=b"audio", format="pcm"),
         )
+    )
 
-    assert excinfo.value.code == "voice_tts_error"
-    assert excinfo.value.status_code == 502
-    failed = asyncio.run(
+    # A dead TTS provider must not fail the session or the call: the turn
+    # returns empty audio and the next turn is still accepted.
+    assert result.audio.data == b""
+    current = asyncio.run(
         manager.get_session(tenant_id="tenant-1", session_id=session.session_id)
     )
-    assert failed.status == "failed"
-    assert failed.error_code == "voice_tts_error"
+    assert current.status == "active"
+
+    second = asyncio.run(
+        manager.process_audio_input(
+            tenant_id="tenant-1",
+            session_id=session.session_id,
+            audio=AudioChunk(data=b"audio", format="pcm"),
+        )
+    )
+    assert second.audio.data == b""
+    assert second.transcript
+
+
+def test_failed_turn_recovers_on_next_successful_turn() -> None:
+    attempts = 0
+
+    class FlakyOnceTTSProvider(MockTTSProvider):
+        async def synthesize(self, **kwargs: object) -> TTSResult:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("tts down once")
+            return await super().synthesize(**kwargs)
+
+    manager = build_manager(tts=FlakyOnceTTSProvider())
+    session = asyncio.run(
+        manager.create_session(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    async def main() -> tuple[object, object]:
+        first = await manager.process_audio_input(
+            tenant_id="tenant-1",
+            session_id=session.session_id,
+            audio=AudioChunk(data=b"audio", format="pcm"),
+        )
+        second = await manager.process_audio_input(
+            tenant_id="tenant-1",
+            session_id=session.session_id,
+            audio=AudioChunk(data=b"audio", format="pcm"),
+        )
+        return first, second
+
+    first, second = asyncio.run(main())
+
+    assert "trouble reaching our systems" in first.response_text
+    assert first.audio.data != b""
+    assert second.audio.data != b""
 
 
 def test_manager_rejects_turn_after_session_ended() -> None:
@@ -726,6 +773,7 @@ def test_manager_emits_lifecycle_events(caplog: pytest.LogCaptureFixture) -> Non
     assert events == [
         "session_created",
         "turn_started",
+        "STT_START",
         "transcription_completed",
         "runtime_response_generated",
         "tts_started",
@@ -1132,3 +1180,298 @@ def test_pcm_frame_accumulator_splits_and_flushes() -> None:
     assert len(final.data) == 320
     assert final.data == b"\x02" * 280 + b"\x00" * 40
     assert accumulator.flush() is None
+
+
+# --- Turn deadlines, timeouts, greeting cache, barge-in ---
+
+
+class HangingSTTProvider:
+    async def transcribe(self, audio: AudioChunk) -> STTResult:
+        await asyncio.sleep(30)
+        return STTResult(text="too late", provider="hanging")
+
+
+class HangingTTSProvider:
+    provider_name = "hanging"
+
+    async def synthesize(self, **kwargs: object) -> TTSResult:
+        await asyncio.sleep(30)
+        raise AssertionError("unreachable")
+
+    def synthesize_stream(self, **kwargs: object) -> AsyncIterator[AudioChunk]:
+        return self._generate()
+
+    async def _generate(self) -> AsyncIterator[AudioChunk]:
+        await asyncio.sleep(30)
+        yield AudioChunk(data=b"", format="pcm")
+
+
+class HangingAgentRuntime:
+    async def get_agent(self, **kwargs: object) -> AgentConfiguration:
+        return AgentConfiguration(id="agent-1", tenant_id="tenant-1")
+
+    async def respond(self, **kwargs: object) -> RuntimeResult:
+        await asyncio.sleep(30)
+        raise AssertionError("unreachable")
+
+
+class FlakySTTProvider:
+    """Hangs once, then transcribes: proves the single STT retry."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def transcribe(self, audio: AudioChunk) -> STTResult:
+        self.calls += 1
+        if self.calls == 1:
+            await asyncio.sleep(30)
+        return STTResult(text="recovered speech", provider="flaky")
+
+
+def test_stt_timeout_falls_back_without_hanging(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import time
+
+    from voice_service.config import TurnSettings
+
+    caplog.set_level(logging.INFO, logger="voice_service.events")
+    manager = build_manager(stt=HangingSTTProvider())
+    manager._turn_settings = TurnSettings(  # type: ignore[attr-defined]
+        turn_timeout=5.0, stt_timeout=0.05, runtime_timeout=5.0, tts_timeout=5.0
+    )
+    session = asyncio.run(
+        manager.create_session(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    started = time.monotonic()
+    result = asyncio.run(
+        manager.process_audio_input(
+            tenant_id="tenant-1",
+            session_id=session.session_id,
+            audio=AudioChunk(data=b"audio", format="pcm"),
+        )
+    )
+
+    assert time.monotonic() - started < 5.0
+    assert "repeat your request" in result.response_text
+    failed = next(
+        record.voice_event
+        for record in caplog.records
+        if record.voice_event["event"] == "turn_failed"
+    )
+    assert failed["stage"] == "stt"
+    assert failed["timeout"] is True
+
+
+def test_runtime_timeout_falls_back_without_hanging() -> None:
+    import time
+
+    from voice_service.config import TurnSettings
+
+    manager = build_manager(runtime=HangingAgentRuntime())
+    manager._turn_settings = TurnSettings(  # type: ignore[attr-defined]
+        turn_timeout=5.0, stt_timeout=5.0, runtime_timeout=0.05, tts_timeout=5.0
+    )
+    session = asyncio.run(
+        manager.create_session(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    started = time.monotonic()
+    result = asyncio.run(
+        manager.process_audio_input(
+            tenant_id="tenant-1",
+            session_id=session.session_id,
+            audio=AudioChunk(data=b"audio", format="pcm"),
+        )
+    )
+
+    assert time.monotonic() - started < 5.0
+    assert "trouble reaching our systems" in result.response_text
+
+
+def test_tts_timeout_returns_empty_audio_without_hanging() -> None:
+    import time
+
+    from voice_service.config import TurnSettings
+
+    manager = build_manager(tts=HangingTTSProvider())
+    manager._turn_settings = TurnSettings(  # type: ignore[attr-defined]
+        turn_timeout=5.0, stt_timeout=5.0, runtime_timeout=5.0, tts_timeout=0.05
+    )
+    session = asyncio.run(
+        manager.create_session(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    started = time.monotonic()
+    result = asyncio.run(
+        manager.process_audio_input(
+            tenant_id="tenant-1",
+            session_id=session.session_id,
+            audio=AudioChunk(data=b"audio", format="pcm"),
+        )
+    )
+
+    assert time.monotonic() - started < 5.0
+    assert result.audio.data == b""
+    current = asyncio.run(
+        manager.get_session(tenant_id="tenant-1", session_id=session.session_id)
+    )
+    assert current.status == "active"
+
+
+def test_greeting_cache_serves_second_call_without_synthesize(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    from voice_service.agent_runtime import AgentConfiguration
+
+    caplog.set_level(logging.INFO, logger="voice_service.events")
+    synthesizes = 0
+
+    class CountingTTSProvider(MockTTSProvider):
+        async def synthesize(self, **kwargs: object) -> TTSResult:
+            nonlocal synthesizes
+            synthesizes += 1
+            return await super().synthesize(**kwargs)
+
+    def agent_with_greeting(greeting: str) -> AgentConfiguration:
+        return AgentConfiguration(
+            id="agent-1",
+            tenant_id="tenant-1",
+            language="en",
+            voice_id="neutral-voice",
+            greeting=greeting,
+        )
+
+    manager = build_manager(
+        tts=CountingTTSProvider(),
+        runtime=FakeAgentRuntimeClient(agent=agent_with_greeting("Hello there")),
+    )
+    session = asyncio.run(
+        manager.create_session(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    async def main() -> tuple[AudioChunk | None, AudioChunk | None]:
+        first = await manager.synthesize_greeting(
+            tenant_id="tenant-1", session_id=session.session_id
+        )
+        second = await manager.synthesize_greeting(
+            tenant_id="tenant-1", session_id=session.session_id
+        )
+        return first, second
+
+    first, second = asyncio.run(main())
+
+    assert first is not None and second is not None
+    assert first.data == second.data
+    assert synthesizes == 1
+    cached_flags = [
+        record.voice_event.get("greeting_cached")
+        for record in caplog.records
+        if record.voice_event["event"] == "audio_synthesized"
+    ]
+    assert cached_flags == [False, True]
+
+
+def test_greeting_cache_invalidates_on_text_change() -> None:
+    from voice_service.agent_runtime import AgentConfiguration
+
+    synthesizes = 0
+
+    class CountingTTSProvider(MockTTSProvider):
+        async def synthesize(self, **kwargs: object) -> TTSResult:
+            nonlocal synthesizes
+            synthesizes += 1
+            return await super().synthesize(**kwargs)
+
+    manager = build_manager(tts=CountingTTSProvider())
+
+    async def greet_with(text: str) -> AudioChunk | None:
+        runtime = FakeAgentRuntimeClient(
+            agent=AgentConfiguration(
+                id="agent-1",
+                tenant_id="tenant-1",
+                language="en",
+                voice_id="neutral-voice",
+                greeting=text,
+            )
+        )
+        manager._agent_runtime = runtime  # type: ignore[attr-defined]
+        session = await manager.create_session(
+            tenant_id="tenant-1",
+            agent_id="agent-1",
+            conversation_id=f"conversation-{text}",
+        )
+        return await manager.synthesize_greeting(
+            tenant_id="tenant-1", session_id=session.session_id
+        )
+
+    async def main() -> None:
+        await greet_with("Hello there")
+        await greet_with("Hello there")
+        await greet_with("Changed greeting")
+
+    asyncio.run(main())
+
+    assert synthesizes == 2
+
+
+def test_greeting_cache_key_changes_with_configuration() -> None:
+    from voice_service.greeting_cache import greeting_cache_key
+
+    base = dict(
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        text="Hello",
+        voice_id="voice-1",
+        model="model-1",
+        output_format="pcm",
+    )
+    key = greeting_cache_key(**base)
+    assert greeting_cache_key(**{**base, "text": "Hi"}) != key
+    assert greeting_cache_key(**{**base, "voice_id": "voice-2"}) != key
+    assert greeting_cache_key(**{**base, "model": "model-2"}) != key
+    assert greeting_cache_key(**{**base, "agent_id": "agent-2"}) != key
+    assert greeting_cache_key(**base) == key
+
+
+def test_stt_timeout_retries_once_then_recovers(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from voice_service.config import TurnSettings
+
+    caplog.set_level(logging.INFO, logger="voice_service.events")
+    provider = FlakySTTProvider()
+    manager = build_manager(stt=provider)
+    manager._turn_settings = TurnSettings(  # type: ignore[attr-defined]
+        turn_timeout=5.0, stt_timeout=0.05, runtime_timeout=5.0, tts_timeout=5.0
+    )
+    session = asyncio.run(
+        manager.create_session(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    result = asyncio.run(
+        manager.process_audio_input(
+            tenant_id="tenant-1",
+            session_id=session.session_id,
+            audio=AudioChunk(data=b"audio", format="pcm"),
+        )
+    )
+
+    assert provider.calls == 2
+    assert result.transcript == "recovered speech"
+    assert any(
+        record.voice_event["event"] == "stt_retry" for record in caplog.records
+    )

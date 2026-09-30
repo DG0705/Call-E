@@ -78,18 +78,40 @@ class KnowledgeRetrieverService:
         self._repository = repository
 
     async def retrieve(
-        self, *, tenant_id: str, agent_id: str, query: str, top_k: int = 3
+        self,
+        *,
+        tenant_id: str,
+        agent_id: str,
+        query: str,
+        top_k: int = 3,
+        source_ids: list[str] | None = None,
     ) -> list[RetrievedChunk]:
-        """Return the top-k chunks for an agent, or nothing outside its boundary."""
+        """Return the top-k chunks for an agent, or nothing outside its boundary.
+
+        Trusted internal callers (the agent runtime, which already resolved
+        the agent's own sources) may pass ``source_ids`` explicitly; otherwise
+        the configured agent-to-source mapping applies.
+        """
         if top_k < 1:
             raise ValueError("top_k must be at least 1.")
-        source_ids = await self._sources.resolve_agent_sources(
-            tenant_id=tenant_id, agent_id=agent_id
+        resolved = (
+            list(source_ids)
+            if source_ids is not None
+            else await self._sources.resolve_agent_sources(
+                tenant_id=tenant_id, agent_id=agent_id
+            )
         )
-        if not source_ids:
+        resolved = (
+            list(source_ids)
+            if source_ids is not None
+            else await self._sources.resolve_agent_sources(
+                tenant_id=tenant_id, agent_id=agent_id
+            )
+        )
+        if not resolved:
             return []
         documents = await self._documents.list_by_tenant_and_sources(
-            tenant_id=tenant_id, source_ids=source_ids
+            tenant_id=tenant_id, source_ids=resolved
         )
         document_ids = [document.id for document in documents]
         if not document_ids:

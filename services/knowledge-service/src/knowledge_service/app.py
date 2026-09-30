@@ -18,6 +18,7 @@ def create_knowledge_app(*, database: KnowledgeDatabase | None = None) -> FastAP
     app.state.document_service = app.state.database.document_service
     app.state.ingestion_service = app.state.database.ingestion_service
     app.state.search_service = app.state.database.search_service
+    app.state.upload_service = app.state.database.upload_service
     app.include_router(knowledge_router)
 
     @app.on_event("startup")

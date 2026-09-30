@@ -586,3 +586,345 @@ def test_safe_error_message_truncates_long_messages() -> None:
 
     assert len(scrubbed) <= 203
     assert scrubbed.endswith("...")
+
+
+def test_isolated_turn_failure_keeps_call_alive() -> None:
+    from call_e_shared.exceptions import PlatformError
+    from datetime import UTC, datetime
+
+    from voice_service.telephony.asterisk.live_call import _LiveCallState
+    from voice_service.telephony.models import TelephonyCall
+    from voice_service.utterance import UtteranceAccumulator
+
+    harness = Harness()
+    now = datetime.now(UTC)
+    call = TelephonyCall(
+        call_id="call-1",
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        conversation_id="conv",
+        caller_number="+15550001",
+        destination_number="1000",
+        direction="inbound",
+        metadata={"channel_id": "phone-1"},
+        created_at=now,
+        updated_at=now,
+    )
+    state = _LiveCallState(
+        call=call,
+        request_id="req-1",
+        stop_turns=asyncio.Event(),
+        accumulator=UtteranceAccumulator(
+            config=harness.runner._utterance_config  # type: ignore[attr-defined]
+        ),
+    )
+    harness.runner._states["phone-1"] = state  # type: ignore[attr-defined]
+    harness.ingress.note_remote_addr("phone-1", ("127.0.0.1", 40000))
+
+    async def failing_process_audio(**kwargs: object) -> object:
+        raise PlatformError(code="voice_tts_error", message="tts down", status_code=502)
+
+    harness.telephony.process_audio = failing_process_audio  # type: ignore[method-assign]
+
+    async def main() -> bool:
+        for _ in range(10):
+            harness.ingress.ingest("phone-1", build_rtp_datagram(voice_frame()))
+        for _ in range(15):
+            harness.ingress.ingest("phone-1", build_rtp_datagram(silence_frame()))
+        return await harness.runner._run_one_turn_with_barge_watch(state)  # type: ignore[attr-defined]
+
+    assert asyncio.run(main()) is True
+
+    # No cleanup: the channel is still tracked and the call can continue.
+    assert "phone-1" in harness.runner._states  # type: ignore[attr-defined]
+    assert state.consecutive_failures == 1
+
+
+def test_three_failed_turns_keep_call_alive() -> None:
+    from call_e_shared.exceptions import PlatformError
+    from datetime import UTC, datetime
+
+    from voice_service.telephony.asterisk.live_call import _LiveCallState
+    from voice_service.telephony.models import TelephonyCall
+    from voice_service.utterance import UtteranceAccumulator
+
+    harness = Harness()
+    now = datetime.now(UTC)
+    call = TelephonyCall(
+        call_id="call-1",
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        conversation_id="conv",
+        caller_number="+15550001",
+        destination_number="1000",
+        direction="inbound",
+        metadata={"channel_id": "phone-1"},
+        created_at=now,
+        updated_at=now,
+    )
+    state = _LiveCallState(
+        call=call,
+        request_id="req-1",
+        stop_turns=asyncio.Event(),
+        accumulator=UtteranceAccumulator(
+            config=harness.runner._utterance_config  # type: ignore[attr-defined]
+        ),
+    )
+    harness.runner._states["phone-1"] = state  # type: ignore[attr-defined]
+    harness.ingress.note_remote_addr("phone-1", ("127.0.0.1", 40000))
+
+    async def failing_process_audio(**kwargs: object) -> object:
+        raise PlatformError(code="voice_tts_error", message="tts down", status_code=502)
+
+    harness.telephony.process_audio = failing_process_audio  # type: ignore[method-assign]
+
+    async def main() -> None:
+        for _ in range(3):
+            for _ in range(10):
+                harness.ingress.ingest("phone-1", build_rtp_datagram(voice_frame()))
+            for _ in range(15):
+                harness.ingress.ingest("phone-1", build_rtp_datagram(silence_frame()))
+            await harness.runner._run_one_turn_with_barge_watch(state)  # type: ignore[attr-defined]
+
+    asyncio.run(main())
+
+    assert state.consecutive_failures == 3
+    # Far below the runaway guard: the runner keeps tracking the call.
+    assert "phone-1" in harness.runner._states  # type: ignore[attr-defined]
+
+
+def test_runaway_guard_ends_call_after_many_consecutive_failures() -> None:
+    from call_e_shared.exceptions import PlatformError
+    from datetime import UTC, datetime
+
+    from voice_service.telephony.asterisk.live_call import _LiveCallState
+    from voice_service.telephony.models import TelephonyCall
+    from voice_service.utterance import UtteranceAccumulator
+
+    harness = Harness()
+    now = datetime.now(UTC)
+    call = TelephonyCall(
+        call_id="call-1",
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        conversation_id="conv",
+        caller_number="+15550001",
+        destination_number="1000",
+        direction="inbound",
+        metadata={"channel_id": "phone-1"},
+        created_at=now,
+        updated_at=now,
+    )
+    state = _LiveCallState(
+        call=call,
+        request_id="req-1",
+        stop_turns=asyncio.Event(),
+        consecutive_failures=19,
+        accumulator=UtteranceAccumulator(
+            config=harness.runner._utterance_config  # type: ignore[attr-defined]
+        ),
+    )
+    harness.runner._states["phone-1"] = state  # type: ignore[attr-defined]
+    harness.ingress.note_remote_addr("phone-1", ("127.0.0.1", 40000))
+
+    async def failing_process_audio(**kwargs: object) -> object:
+        raise PlatformError(code="voice_tts_error", message="tts down", status_code=502)
+
+    harness.telephony.process_audio = failing_process_audio  # type: ignore[method-assign]
+
+    async def main() -> None:
+        for _ in range(10):
+            harness.ingress.ingest("phone-1", build_rtp_datagram(voice_frame()))
+        for _ in range(15):
+            harness.ingress.ingest("phone-1", build_rtp_datagram(silence_frame()))
+        await harness.runner._run_one_turn_with_barge_watch(state)  # type: ignore[attr-defined]
+
+    asyncio.run(main())
+
+    assert state.consecutive_failures == 20
+    # Guard tripped: the runner gave up tracking the broken call.
+    assert "phone-1" not in harness.runner._states  # type: ignore[attr-defined]
+
+
+def test_turn_logs_start_and_completion(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+
+    caplog.set_level(logging.INFO, logger="voice_service.telephony.events")
+    harness = Harness(
+        greeting=AudioChunk(data=b"\x00\x00" * 160, format="pcm")
+    )
+
+    async def main() -> None:
+        harness.ingress.note_remote_addr("phone-1", ("127.0.0.1", 40001))
+        await harness.runner.handle_event(stasis_start())
+        state = harness.runner._states["phone-1"]  # type: ignore[attr-defined]
+        for _ in range(10):
+            harness.ingress.ingest("phone-1", build_rtp_datagram(voice_frame()))
+        for _ in range(10):
+            harness.ingress.ingest("phone-1", build_rtp_datagram(silence_frame()))
+        await harness.runner._run_one_turn_with_barge_watch(state)  # type: ignore[attr-defined]
+        await harness.runner.handle_event(hangup_event("StasisEnd", "phone-1"))
+
+    asyncio.run(main())
+
+    started = [
+        record.telephony_event
+        for record in caplog.records
+        if getattr(record, "telephony_event", None) is not None
+        and record.telephony_event["event"] == "TURN_START"
+    ]
+    completed = [
+        record.telephony_event
+        for record in caplog.records
+        if getattr(record, "telephony_event", None) is not None
+        and record.telephony_event["event"] == "TURN_COMPLETED"
+    ]
+    assert len(started) == 1
+    assert started[0]["turn"] == 1
+    assert len(completed) == 1
+    assert completed[0]["turn"] == 1
+
+
+def test_barge_watcher_detects_speech_and_preserves_utterance() -> None:
+    from datetime import UTC, datetime
+
+    from voice_service.telephony.asterisk.live_call import _LiveCallState
+    from voice_service.telephony.models import TelephonyCall
+    from voice_service.utterance import UtteranceAccumulator
+
+    harness = Harness()
+    now = datetime.now(UTC)
+    call = TelephonyCall(
+        call_id="call-1",
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        conversation_id="conv",
+        caller_number="+15550001",
+        destination_number="1000",
+        direction="inbound",
+        metadata={"channel_id": "phone-1"},
+        created_at=now,
+        updated_at=now,
+    )
+    state = _LiveCallState(
+        call=call,
+        request_id="req-1",
+        stop_turns=asyncio.Event(),
+        accumulator=UtteranceAccumulator(
+            config=harness.runner._utterance_config  # type: ignore[attr-defined]
+        ),
+    )
+    harness.ingress.note_remote_addr("phone-1", ("127.0.0.1", 40000))
+
+    for _ in range(10):
+        harness.ingress.ingest("phone-1", build_rtp_datagram(voice_frame()))
+    assert harness.runner._drain_watching_for_barge(state) is True  # type: ignore[attr-defined]
+
+    for _ in range(15):
+        harness.ingress.ingest("phone-1", build_rtp_datagram(silence_frame()))
+    # Trailing silence is not barge-in, but it completes the utterance.
+    assert harness.runner._drain_watching_for_barge(state) is False  # type: ignore[attr-defined]
+    assert state.pending_utterance is not None
+
+    # The next turn starts cleanly from the preserved utterance.
+    collected = harness.runner._collect_utterance(state)  # type: ignore[attr-defined]
+    assert collected is not None
+    assert state.pending_utterance is None
+
+
+def test_barge_watcher_ignores_silence() -> None:
+    from datetime import UTC, datetime
+
+    from voice_service.telephony.asterisk.live_call import _LiveCallState
+    from voice_service.telephony.models import TelephonyCall
+    from voice_service.utterance import UtteranceAccumulator
+
+    harness = Harness()
+    now = datetime.now(UTC)
+    call = TelephonyCall(
+        call_id="call-1",
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        conversation_id="conv",
+        caller_number="+15550001",
+        destination_number="1000",
+        direction="inbound",
+        metadata={"channel_id": "phone-1"},
+        created_at=now,
+        updated_at=now,
+    )
+    state = _LiveCallState(
+        call=call,
+        request_id="req-1",
+        stop_turns=asyncio.Event(),
+        accumulator=UtteranceAccumulator(
+            config=harness.runner._utterance_config  # type: ignore[attr-defined]
+        ),
+    )
+    harness.ingress.note_remote_addr("phone-1", ("127.0.0.1", 40000))
+
+    for _ in range(10):
+        harness.ingress.ingest("phone-1", build_rtp_datagram(silence_frame()))
+    assert harness.runner._drain_watching_for_barge(state) is False  # type: ignore[attr-defined]
+    assert state.pending_utterance is None
+
+
+def test_barge_watch_interrupts_slow_turn() -> None:
+    from datetime import UTC, datetime
+
+    from voice_service.telephony.asterisk.live_call import _LiveCallState
+    from voice_service.telephony.models import TelephonyCall
+    from voice_service.utterance import UtteranceAccumulator
+
+    harness = Harness()
+    now = datetime.now(UTC)
+    call = TelephonyCall(
+        call_id="call-1",
+        tenant_id="tenant-1",
+        agent_id="agent-1",
+        conversation_id="conv",
+        caller_number="+15550001",
+        destination_number="1000",
+        direction="inbound",
+        metadata={"channel_id": "phone-1"},
+        created_at=now,
+        updated_at=now,
+    )
+    state = _LiveCallState(
+        call=call,
+        request_id="req-1",
+        stop_turns=asyncio.Event(),
+        accumulator=UtteranceAccumulator(
+            config=harness.runner._utterance_config  # type: ignore[attr-defined]
+        ),
+    )
+    interrupts: list[tuple[str, str]] = []
+    slow_calls = 0
+
+    async def slow_turn(watched: object) -> bool:
+        nonlocal slow_calls
+        slow_calls += 1
+        await asyncio.sleep(0.3)
+        return True
+
+    async def fake_interrupt(**kwargs: object) -> bool:
+        interrupts.append((str(kwargs["tenant_id"]), str(kwargs["call_id"])))
+        return True
+
+    harness.runner._run_one_turn = slow_turn  # type: ignore[method-assign]
+    harness.telephony.interrupt_audio = fake_interrupt  # type: ignore[method-assign]
+
+    async def main() -> bool:
+        task = asyncio.create_task(
+            harness.runner._run_one_turn_with_barge_watch(state)  # type: ignore[attr-defined]
+        )
+        await asyncio.sleep(0.05)
+        for _ in range(5):
+            harness.ingress.ingest("phone-1", build_rtp_datagram(voice_frame()))
+        return await task
+
+    assert asyncio.run(main()) is True
+    assert slow_calls == 1
+    assert interrupts == [("tenant-1", "call-1")]

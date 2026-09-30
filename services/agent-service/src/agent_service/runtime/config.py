@@ -11,7 +11,7 @@ class LLMSettings:
     provider: str = "mock"
     groq_api_key: str | None = None
     groq_model: str | None = None
-    max_tool_iterations: int = 5
+    max_tool_iterations: int = 3
 
 
 def load_llm_settings() -> LLMSettings:
@@ -31,7 +31,7 @@ def _optional_environment_value(name: str) -> str | None:
 
 def _load_max_tool_iterations() -> int:
     try:
-        value = int(os.getenv("MAX_TOOL_ITERATIONS", "5"))
+        value = int(os.getenv("MAX_TOOL_ITERATIONS", "3"))
     except ValueError:
-        return 5
-    return value if value >= 1 else 5
+        return 3
+    return value if value >= 1 else 3

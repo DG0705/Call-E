@@ -1,4 +1,9 @@
-"""Development API for exercising the Kaari AI Sales Agent end-to-end."""
+"""RETIRED: Kaari development test endpoint (no longer registered).
+
+The ``/api/v1/kaari/sales/test`` route was superseded by the generic
+``/api/v1/agents/{agent_id}/runtime/test`` endpoint. This module is kept only
+so its history is visible; nothing imports it and it serves no traffic.
+"""
 
 from __future__ import annotations
 

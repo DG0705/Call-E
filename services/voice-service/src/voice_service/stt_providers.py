@@ -85,7 +85,7 @@ class DeepgramSTTProvider:
         except httpx.HTTPError as exc:
             raise STTProviderError("Deepgram transcription request failed.") from exc
 
-        payload = _as_dict(response.json())
+        payload = _safe_json(response)
         result = payload.get("results", {})
         channels = result.get("channels") or []
         words: list[dict[str, Any]] = []
@@ -157,6 +157,21 @@ def _stt_payload(audio: AudioChunk) -> tuple[str, int, str]:
 
 def _as_dict(payload: object) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
+
+
+def _safe_json(response: httpx.Response) -> dict[str, Any]:
+    """Parse a transcription body that may be empty or non-JSON.
+
+    Providers occasionally answer 200 with an empty or proxied body; that
+    must surface as a normal STT failure (spoken fallback) rather than an
+    unhandled exception that ends the call.
+    """
+    try:
+        return _as_dict(response.json())
+    except ValueError as exc:
+        raise STTProviderError(
+            "Deepgram transcription response was not valid JSON."
+        ) from exc
 
 
 def _aggregate_confidence(words: list[dict[str, Any]]) -> float | None:

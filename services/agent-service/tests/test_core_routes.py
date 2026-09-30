@@ -693,6 +693,7 @@ def test_agent_configuration_and_runtime_test_endpoint() -> None:
         "response": "Mock response: Hello runtime",
         "provider": "mock",
         "model": "mock-agent-runtime-v1",
+        "tool_iterations": 0,
         "request_id": "runtime-request",
     }
     assert runtime.headers["X-Request-ID"] == "runtime-request"

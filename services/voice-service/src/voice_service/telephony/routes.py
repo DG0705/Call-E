@@ -54,6 +54,22 @@ async def create_call(request: Request, payload: CreateCallRequest) -> Telephony
 
 
 @router.get(
+    "/api/v1/telephony/calls",
+    response_model=list[TelephonyCall],
+    response_model_by_alias=False,
+)
+async def list_calls(
+    request: Request,
+    tenant_id: str = Query(min_length=1),
+    limit: int = Query(default=50, ge=1, le=500),
+) -> list[TelephonyCall]:
+    """List a tenant's call records, newest first (read-only history)."""
+    return await request.app.state.telephony_service.list_calls(
+        tenant_id=tenant_id, limit=limit
+    )
+
+
+@router.get(
     "/api/v1/telephony/calls/{call_id}",
     response_model=TelephonyCall,
     response_model_by_alias=False,
