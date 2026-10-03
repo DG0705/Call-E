@@ -7,6 +7,12 @@ services:
       context: services/voice-service
       dockerfile: telephony/asterisk/Dockerfile
     restart: unless-stopped
+    environment:
+      # Injected into the placeholder Asterisk config at container start by
+      # telephony/asterisk/entrypoint.sh. Values come from the untracked .env;
+      # nothing secret is committed. Both must be set or Asterisk won't start.
+      ASTERISK_PASSWORD: ${ASTERISK_PASSWORD:-}
+      DEV_PHONE_SIP_PASSWORD: ${DEV_PHONE_SIP_PASSWORD:-}
     ports:
       - "5060:5060/udp"
       - "8088:8088"

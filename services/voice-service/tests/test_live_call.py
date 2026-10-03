@@ -22,7 +22,7 @@ from voice_service.telephony.asterisk.adapter import AsteriskAdapter
 from voice_service.telephony.asterisk.ari_events import parse_ari_event
 from voice_service.telephony.asterisk.live_call import AsteriskLiveCallRunner
 from voice_service.telephony.asterisk.rtp_ingress import build_rtp_datagram
-from voice_service.telephony.dev_routing import KaariDevRouter
+from voice_service.telephony.dev_routing import DevInboundRouter
 from voice_service.telephony.events import EventPublisher, TelephonyEvent
 from voice_service.telephony.models import TelephonyCall
 from voice_service.telephony.service import TelephonyService
@@ -219,7 +219,9 @@ class Harness:
         self.runner = AsteriskLiveCallRunner(
             adapter=self.adapter,
             telephony_service=self.telephony,
-            dev_router=KaariDevRouter("1000"),
+            dev_router=DevInboundRouter(
+                "1000", tenant_id="kaari-planters", agent_id="kaari-sales-agent"
+            ),
             rtp_host="127.0.0.1",
             rtp_port_start=43000,
             rtp_port_count=10,

@@ -38,6 +38,8 @@ class VectorRepository(Protocol):
 
     async def delete_document(self, *, tenant_id: str, document_id: str) -> int: ...
 
+    async def delete_source(self, *, tenant_id: str, source_id: str) -> int: ...
+
     async def search(
         self,
         *,
@@ -75,6 +77,12 @@ class CollectionVectorRepository:
         """Remove all embedded chunks for one document within its tenant."""
         return await self._collection.delete_many(
             {"tenant_id": tenant_id, "document_id": document_id}
+        )
+
+    async def delete_source(self, *, tenant_id: str, source_id: str) -> int:
+        """Remove all embedded chunks for one source within its tenant."""
+        return await self._collection.delete_many(
+            {"tenant_id": tenant_id, "source_id": source_id}
         )
 
     async def search(

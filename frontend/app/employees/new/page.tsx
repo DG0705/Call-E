@@ -84,6 +84,7 @@ export default function CreateEmployeePage() {
     convStyle: "Friendly",
     responseStyle: "Natural",
     language: "en",
+    voiceId: "",
     greeting: "",
   });
 
@@ -119,6 +120,7 @@ export default function CreateEmployeePage() {
         personality:
           PERSONALITY_BY_STYLE[form.convStyle] ?? form.convStyle.toLowerCase(),
         language: form.language,
+        voice_id: form.voiceId.trim() || null,
         greeting: form.greeting.trim() || null,
         knowledge_sources: form.knowledgeSources,
       });
@@ -352,14 +354,13 @@ export default function CreateEmployeePage() {
                     <option value="hi">Hindi</option>
                   </Select>
                 </Field>
-                <div className="opacity-60">
-                  <Field label="Voice">
-                    <Select disabled value="Default voice">
-                      <option>Default voice</option>
-                    </Select>
-                  </Field>
-                  <ComingSoon>Coming soon</ComingSoon>
-                </div>
+                <Field label="Voice" hint="TTS voice id. Leave empty to use the workspace default voice.">
+                  <TextInput
+                    value={form.voiceId}
+                    onChange={(event) => set("voiceId")(event.target.value)}
+                    placeholder="e.g. an ElevenLabs voice id available to your API key"
+                  />
+                </Field>
               </div>
               <Field
                 label="Greeting"
@@ -400,6 +401,7 @@ export default function CreateEmployeePage() {
                     ["Knowledge", form.knowledgeSources.length ? form.knowledgeSources.join(", ") : "—"],
                     ["Conversation", form.convStyle],
                     ["Language", form.language],
+                    ["Voice", form.voiceId.trim() || "Workspace default"],
                     ["Greeting", form.greeting || "—"],
                     ["Tenant", tenantId],
                   ] as const

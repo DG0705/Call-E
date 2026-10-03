@@ -249,8 +249,63 @@ export function EmptyState({
   );
 }
 
-/* ---------- Steps indicator ---------- */
+/* ---------- Confirmation dialog ---------- */
 
+/** Accessible modal for destructive actions. State is owned by the caller;
+ * this component is presentational so it stays server-render safe. */
+export function ConfirmDialog({
+  open,
+  title,
+  message,
+  confirmLabel = "Delete",
+  cancelLabel = "Cancel",
+  busy = false,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 px-4"
+      onMouseDown={onCancel}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+        aria-describedby="confirm-message"
+        className="w-full max-w-sm rounded-xl border border-line-200 bg-white p-6 shadow-lg"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <h2 id="confirm-title" className="font-display text-lg text-ink-900">
+          {title}
+        </h2>
+        <p id="confirm-message" className="mt-2 text-sm text-ink-500">
+          {message}
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onCancel} disabled={busy}>
+            {cancelLabel}
+          </Button>
+          <Button variant="destructive" onClick={onConfirm} disabled={busy}>
+            {busy ? "Working…" : confirmLabel}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Steps indicator ---------- */
 export function StepsIndicator({
   steps,
   current,

@@ -1,5 +1,6 @@
 """Provider-neutral embedding interface and deterministic mock."""
 
+import logging
 import os
 import re
 import zlib
@@ -9,6 +10,8 @@ from typing import Any, Protocol
 import httpx
 from pydantic import BaseModel, Field
 
+
+logger = logging.getLogger("knowledge_service.embeddings")
 
 _TOKEN_PATTERN = re.compile(r"[a-z0-9']+")
 
@@ -139,4 +142,10 @@ def create_embedding_provider() -> EmbeddingProvider:
             model=os.getenv("EMBEDDING_MODEL", ""),
             timeout_seconds=float(os.getenv("EMBEDDING_TIMEOUT_SECONDS", "30")),
         )
+    logger.warning(
+        "EMBEDDINGS_MOCK_ACTIVE provider=mock — retrieval is lexical-only and "
+        "will miss semantically-worded questions. For production RAG set "
+        "EMBEDDING_PROVIDER=openai_compatible with EMBEDDING_BASE_URL, "
+        "EMBEDDING_API_KEY and EMBEDDING_MODEL."
+    )
     return MockEmbeddingProvider()

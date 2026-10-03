@@ -46,7 +46,7 @@ class TurnSettings:
 class UtteranceSettings:
     """Tunable end-of-speech detection for conversational phone audio."""
 
-    end_silence_ms: int = 800
+    end_silence_ms: int = 400
     min_utterance_ms: int = 400
     max_utterance_ms: int = 15_000
 
@@ -87,7 +87,7 @@ def load_turn_settings() -> TurnSettings:
 def load_utterance_settings() -> UtteranceSettings:
     """Load end-of-speech detection tuning from the service environment."""
     return UtteranceSettings(
-        end_silence_ms=_positive_int("VOICE_END_SILENCE_MS", 800),
+        end_silence_ms=_positive_int("VOICE_END_SILENCE_MS", 400),
         min_utterance_ms=_positive_int("VOICE_MIN_UTTERANCE_MS", 400),
         max_utterance_ms=_positive_int("VOICE_MAX_UTTERANCE_MS", 15_000),
     )

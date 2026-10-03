@@ -40,10 +40,6 @@ KNOWLEDGE_STORAGE_DIR_ENV_VAR = "KNOWLEDGE_STORAGE_DIR"
 KNOWLEDGE_MAX_FILE_BYTES_ENV_VAR = "KNOWLEDGE_MAX_FILE_BYTES"
 DEFAULT_STORAGE_DIR = "/data/knowledge_uploads"
 DEFAULT_MAX_FILE_BYTES = 10_000_000
-KNOWLEDGE_STORAGE_DIR_ENV_VAR = "KNOWLEDGE_STORAGE_DIR"
-KNOWLEDGE_MAX_FILE_BYTES_ENV_VAR = "KNOWLEDGE_MAX_FILE_BYTES"
-DEFAULT_STORAGE_DIR = "/data/knowledge_uploads"
-DEFAULT_MAX_FILE_BYTES = 10_000_000
 
 SOURCE_TENANT_INDEX = "source_tenant"
 DOCUMENT_TENANT_SOURCE_INDEX = "document_tenant_source"
@@ -204,13 +200,15 @@ class KnowledgeDatabase:
         self._embedder = embedder or create_embedding_provider()
         self._agent_sources = agent_sources or MappingAgentKnowledgeResolver()
 
+        source_repository = KnowledgeSourceRepository(collections)
+        document_repository = KnowledgeDocumentRepository(collections)
+        chunks = CollectionVectorRepository(collections[KNOWLEDGE_CHUNKS_COLLECTION])
         self.source_service = KnowledgeSourceService(
-            KnowledgeSourceRepository(collections)
+            source_repository, document_repository, chunks
         )
         self.document_service = KnowledgeDocumentService(
-            KnowledgeDocumentRepository(collections), self.source_service
+            document_repository, self.source_service, chunks
         )
-        chunks = CollectionVectorRepository(collections[KNOWLEDGE_CHUNKS_COLLECTION])
         self.ingestion_service = KnowledgeIngestionService(
             documents=self.document_service,
             embedder=self._embedder,

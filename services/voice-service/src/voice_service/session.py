@@ -2,10 +2,12 @@
 
 import asyncio
 import logging
+import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -14,6 +16,7 @@ from call_e_shared.exceptions import PlatformError
 from voice_service.agent_runtime import AgentRuntimeClient
 from voice_service.audio import AudioChunk, PcmFrameAccumulator, decode_wav
 from voice_service.config import TurnSettings
+from voice_service.stt import STTResult
 from voice_service.greeting_cache import (
     GreetingAudioStore,
     InMemoryGreetingAudioStore,
@@ -66,6 +69,22 @@ class VoiceTurnResult(BaseModel):
     tts_voice_id: str | None = None
     content_type: str
     audio_packets_streamed: int = 0
+    tts_sentences: int = 0
+
+
+def split_first_sentence(text: str) -> tuple[str | None, str]:
+    """Split the first complete sentence off streamed LLM text.
+
+    A boundary is sentence-final punctuation (``.``/``!``/``?``) followed by
+    whitespace or the end of the buffer, with at least 20 characters buffered
+    so tiny fragments (``OK.``, ``Mr.``) are never sent to TTS alone. Returns
+    ``(None, text)`` until a safe boundary exists; the caller flushes the
+    remainder when the stream ends.
+    """
+    match = re.search(r"^(.{20,}?[.!?])(?=\s|$)", text, re.DOTALL)
+    if match is None:
+        return None, text
+    return match.group(1).strip(), text[match.end():].lstrip()
 
 
 class VoiceSessionManager:
@@ -426,6 +445,23 @@ class VoiceSessionManager:
                 message="No speech was recognized.",
                 status_code=422,
             )
+        # Prefer the streaming runtime when the sink is present: LLM text
+        # deltas flow into per-sentence TTS while generation continues, so the
+        # first sentence plays long before the complete response exists.
+        # Buffered clients (and missing sinks) keep the classic path below.
+        if audio_sink is not None and hasattr(
+            self._agent_runtime, "respond_stream"
+        ):
+            return await self._run_streaming_turn(
+                session=session,
+                tenant_id=tenant_id,
+                transcription=transcription,
+                audio_sink=audio_sink,
+                request_id=request_id,
+                turn_start=turn_start,
+                stt_done=stt_done,
+                stt_elapsed_ms=stt_elapsed_ms,
+            )
         try:
             runtime_result = await asyncio.wait_for(
                 self._agent_runtime.respond(
@@ -701,6 +737,355 @@ class VoiceSessionManager:
             tts_voice_id=synthesis.voice_id,
             content_type=synthesis.content_type,
             audio_packets_streamed=0,
+        )
+
+    async def _run_streaming_turn(
+        self,
+        *,
+        session: VoiceSession,
+        tenant_id: str,
+        transcription: STTResult,
+        audio_sink: Callable[[AudioChunk], Awaitable[None]],
+        request_id: str | None,
+        turn_start: float,
+        stt_done: float,
+        stt_elapsed_ms: int,
+    ) -> VoiceTurnResult:
+        """Run one turn with LLM sentences flowing into TTS as they arrive.
+
+        The runtime stream is consumed sentence by sentence; each completed
+        sentence starts TTS immediately while the model keeps generating, so
+        first audio no longer waits for the complete response. Bounds come
+        from the provider HTTP timeouts plus the outer turn deadline — no
+        stage here can hang silently. Failures before any speech fall back to
+        a spoken message; failures after speech keep the partial playout and
+        return, never failing the call.
+        """
+        from voice_service.telephony.provider import AudioOutputInterrupted
+
+        runtime_started = time.monotonic()
+        log_voice_event(
+            self._logger,
+            "RUNTIME_START",
+            tenant_id=tenant_id,
+            agent_id=session.agent_id,
+            session_id=session.session_id,
+            conversation_id=session.conversation_id,
+            request_id=request_id,
+            message="RUNTIME_START",
+        )
+        buffer = ""
+        sentences = 0
+        total_frames = 0
+        total_bytes = 0
+        total_chunks = 0
+        first_audio_ms: int | None = None
+        runtime_result: Any = None
+        tts_started_logged = False
+
+        async def _speak(sentence: str) -> None:
+            nonlocal sentences, total_frames, total_bytes, total_chunks
+            nonlocal first_audio_ms, tts_started_logged
+            if not tts_started_logged:
+                tts_started_logged = True
+                log_voice_event(
+                    self._logger,
+                    "tts_started",
+                    tenant_id=tenant_id,
+                    agent_id=session.agent_id,
+                    session_id=session.session_id,
+                    conversation_id=session.conversation_id,
+                    request_id=request_id,
+                    output_format=session.output_audio_format,
+                    text_chars=len(sentence),
+                    streamed_sentences=True,
+                )
+            sentence_start = time.monotonic()
+            stats = await self._stream_tts_to_sink(
+                session=session,
+                text=sentence,
+                audio_sink=audio_sink,
+                request_id=request_id,
+                tts_start=sentence_start,
+            )
+            if not stats["completed"] and stats["frames"] == 0:
+                raise RuntimeError(
+                    str(stats.get("error") or "sentence TTS failed")
+                )
+            total_frames += int(stats["frames"])
+            total_bytes += int(stats["bytes"])
+            total_chunks += int(stats["chunks"])
+            if first_audio_ms is None and stats["first_chunk_ms"] is not None:
+                first_audio_ms = int(stats["first_chunk_ms"])
+            sentences += 1
+            log_voice_event(
+                self._logger,
+                "tts_sentence_started",
+                tenant_id=tenant_id,
+                agent_id=session.agent_id,
+                session_id=session.session_id,
+                conversation_id=session.conversation_id,
+                request_id=request_id,
+                sentence_index=sentences,
+                text_chars=len(sentence),
+            )
+
+        stream = self._agent_runtime.respond_stream(
+            tenant_id=tenant_id,
+            agent_id=session.agent_id,
+            conversation_id=session.conversation_id,
+            message=transcription.text,
+        )
+        try:
+            async for chunk in stream:
+                # Support both voice-service RuntimeTextChunk (text_delta, done, result)
+                # and agent-service RuntimeStreamEvent (type, delta, result)
+                text_delta = getattr(chunk, "text_delta", None)
+                if text_delta is None:
+                    text_delta = getattr(chunk, "delta", None)
+                if text_delta:
+                    buffer += text_delta
+                    while True:
+                        sentence, buffer = split_first_sentence(buffer)
+                        if sentence is None:
+                            break
+                        await _speak(sentence)
+                    if len(buffer) > 300 and buffer.strip():
+                        await _speak(buffer.strip())
+                        buffer = ""
+                # Detect completion: voice-service uses chunk.done, agent-service uses chunk.type == "done"
+                chunk_done = getattr(chunk, "done", False)
+                if not chunk_done:
+                    chunk_type = getattr(chunk, "type", None)
+                    if chunk_type == "done":
+                        chunk_done = True
+                if chunk_done:
+                    chunk_result = getattr(chunk, "result", None)
+                    if chunk_result is not None:
+                        runtime_result = chunk_result
+                    break
+        except asyncio.CancelledError:
+            aclose = getattr(stream, "aclose", None)
+            if aclose is not None:
+                try:
+                    await aclose()
+                except Exception:
+                    pass
+            raise
+        except AudioOutputInterrupted:
+            return await self._partial_stream_result(
+                session=session,
+                tenant_id=tenant_id,
+                transcription=transcription,
+                request_id=request_id,
+                turn_start=turn_start,
+                stt_done=stt_done,
+                stt_elapsed_ms=stt_elapsed_ms,
+                runtime_result=runtime_result,
+                total_frames=total_frames,
+                total_bytes=total_bytes,
+                sentences=sentences,
+                first_audio_ms=first_audio_ms,
+                error="AudioOutputInterrupted",
+            )
+        except Exception as exc:
+            if total_frames > 0:
+                return await self._partial_stream_result(
+                    session=session,
+                    tenant_id=tenant_id,
+                    transcription=transcription,
+                    request_id=request_id,
+                    turn_start=turn_start,
+                    stt_done=stt_done,
+                    stt_elapsed_ms=stt_elapsed_ms,
+                    runtime_result=runtime_result,
+                    total_frames=total_frames,
+                    total_bytes=total_bytes,
+                    sentences=sentences,
+                    first_audio_ms=first_audio_ms,
+                    error=str(type(exc).__name__),
+                )
+            log_voice_event(
+                self._logger,
+                "turn_failed",
+                tenant_id=tenant_id,
+                agent_id=session.agent_id,
+                session_id=session.session_id,
+                conversation_id=session.conversation_id,
+                request_id=request_id,
+                stage="runtime",
+                error_code=_RUNTIME_ERROR_CODE,
+                error=str(type(exc).__name__),
+                message=f"turn_failed stage=runtime error={type(exc).__name__}",
+            )
+            return await self._fallback_turn(
+                session,
+                text=_RUNTIME_FALLBACK_MESSAGE,
+                transcript=transcription.text,
+                request_id=request_id,
+                error_code=_RUNTIME_ERROR_CODE,
+            )
+        finally:
+            aclose = getattr(stream, "aclose", None)
+            if aclose is not None:
+                try:
+                    await aclose()
+                except Exception:
+                    pass
+        remainder = buffer.strip()
+        if remainder and runtime_result is not None:
+            await _speak(remainder)
+        if runtime_result is None or total_frames == 0:
+            return await self._fallback_turn(
+                session,
+                text=_RUNTIME_FALLBACK_MESSAGE,
+                transcript=transcription.text,
+                request_id=request_id,
+                error_code=_RUNTIME_ERROR_CODE,
+            )
+        runtime_done = time.monotonic()
+        runtime_elapsed_ms = int((runtime_done - stt_done) * 1000)
+        tool_iterations = int(
+            getattr(runtime_result, "tool_iterations", 0) or 0
+        )
+        log_voice_event(
+            self._logger,
+            "runtime_response_generated",
+            tenant_id=tenant_id,
+            agent_id=session.agent_id,
+            session_id=session.session_id,
+            conversation_id=session.conversation_id,
+            request_id=request_id,
+            provider=runtime_result.provider_name,
+            model=runtime_result.model_name,
+            runtime_elapsed_ms=runtime_elapsed_ms,
+        )
+        synth_done = time.monotonic()
+        tts_elapsed_ms = int((synth_done - runtime_started) * 1000)
+        turn_elapsed_ms = int((synth_done - turn_start) * 1000)
+        log_voice_event(
+            self._logger,
+            "synthesis_completed",
+            tenant_id=tenant_id,
+            agent_id=session.agent_id,
+            session_id=session.session_id,
+            conversation_id=session.conversation_id,
+            request_id=request_id,
+            provider=getattr(self._tts_provider, "provider_name", "unknown"),
+            tts_elapsed_ms=tts_elapsed_ms,
+            streamed=True,
+        )
+        log_voice_event(
+            self._logger,
+            "turn_completed",
+            tenant_id=tenant_id,
+            agent_id=session.agent_id,
+            session_id=session.session_id,
+            conversation_id=session.conversation_id,
+            request_id=request_id,
+            stt_elapsed_ms=stt_elapsed_ms,
+            runtime_elapsed_ms=runtime_elapsed_ms,
+            tts_elapsed_ms=tts_elapsed_ms,
+            turn_elapsed_ms=turn_elapsed_ms,
+            tool_iterations=tool_iterations,
+            response_chars=len(runtime_result.text),
+            audio_bytes=total_bytes,
+            audio_packets_streamed=total_frames,
+            tts_sentences=sentences,
+            tts_first_audio_ms=first_audio_ms,
+            streamed=True,
+        )
+        await self._mark(session, "active")
+        return VoiceTurnResult(
+            session_id=session.session_id,
+            tenant_id=session.tenant_id,
+            agent_id=session.agent_id,
+            conversation_id=session.conversation_id,
+            transcript=transcription.text,
+            response_text=runtime_result.text,
+            audio=AudioChunk(data=b"", format="pcm"),
+            stt_provider=transcription.provider,
+            stt_confidence=transcription.confidence,
+            runtime_provider=runtime_result.provider_name,
+            runtime_model=runtime_result.model_name,
+            tts_provider=getattr(self._tts_provider, "provider_name", "unknown"),
+            tts_voice_id=None,
+            content_type="audio/pcm",
+            audio_packets_streamed=total_frames,
+            tts_sentences=sentences,
+        )
+
+    async def _partial_stream_result(
+        self,
+        *,
+        session: VoiceSession,
+        tenant_id: str,
+        transcription: STTResult,
+        request_id: str | None,
+        turn_start: float,
+        stt_done: float,
+        stt_elapsed_ms: int,
+        runtime_result: Any,
+        total_frames: int,
+        total_bytes: int,
+        sentences: int,
+        first_audio_ms: int | None,
+        error: str,
+    ) -> VoiceTurnResult:
+        """Return a partial streamed turn after interruption or late failure."""
+        log_voice_event(
+            self._logger,
+            "tts_stream_interrupted",
+            tenant_id=tenant_id,
+            agent_id=session.agent_id,
+            session_id=session.session_id,
+            conversation_id=session.conversation_id,
+            request_id=request_id,
+            frames_sent=total_frames,
+            error=error,
+        )
+        runtime_elapsed_ms = int((time.monotonic() - stt_done) * 1000)
+        log_voice_event(
+            self._logger,
+            "turn_completed",
+            tenant_id=tenant_id,
+            agent_id=session.agent_id,
+            session_id=session.session_id,
+            conversation_id=session.conversation_id,
+            request_id=request_id,
+            stt_elapsed_ms=stt_elapsed_ms,
+            runtime_elapsed_ms=runtime_elapsed_ms,
+            tts_elapsed_ms=runtime_elapsed_ms,
+            turn_elapsed_ms=int((time.monotonic() - turn_start) * 1000),
+            tool_iterations=int(getattr(runtime_result, "tool_iterations", 0) or 0)
+            if runtime_result is not None
+            else 0,
+            response_chars=len(getattr(runtime_result, "text", "") or ""),
+            audio_bytes=total_bytes,
+            audio_packets_streamed=total_frames,
+            tts_sentences=sentences,
+            tts_first_audio_ms=first_audio_ms,
+            streamed=True,
+            interrupted=True,
+        )
+        await self._mark(session, "active")
+        return VoiceTurnResult(
+            session_id=session.session_id,
+            tenant_id=session.tenant_id,
+            agent_id=session.agent_id,
+            conversation_id=session.conversation_id,
+            transcript=transcription.text,
+            response_text=getattr(runtime_result, "text", "") or "",
+            audio=AudioChunk(data=b"", format="pcm"),
+            stt_provider=transcription.provider,
+            stt_confidence=transcription.confidence,
+            runtime_provider=getattr(runtime_result, "provider_name", "unknown"),
+            runtime_model=getattr(runtime_result, "model_name", "unknown"),
+            tts_provider=getattr(self._tts_provider, "provider_name", "unknown"),
+            tts_voice_id=None,
+            content_type="audio/pcm",
+            audio_packets_streamed=total_frames,
+            tts_sentences=sentences,
         )
 
     async def _stream_tts_to_sink(

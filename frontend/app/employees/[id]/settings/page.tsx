@@ -43,6 +43,7 @@ export default function EmployeeSettingsPage({
     description: string;
     role: string;
     language: string;
+    voiceId: string;
     greeting: string;
   } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -72,6 +73,7 @@ export default function EmployeeSettingsPage({
       description: current.description,
       role: current.role,
       language: current.language,
+      voiceId: current.voice_id ?? "",
       greeting: current.greeting ?? "",
       ...draft,
     };
@@ -89,7 +91,7 @@ export default function EmployeeSettingsPage({
         system_prompt: current.system_prompt,
         personality: current.personality,
         language: form.language,
-        voice_id: current.voice_id,
+        voice_id: form.voiceId.trim() || null,
         greeting: form.greeting.trim() || null,
         goals: current.goals,
         allowed_tools: current.allowed_tools,
@@ -117,9 +119,17 @@ export default function EmployeeSettingsPage({
           description: employee.description,
           role: employee.role,
           language: employee.language,
+          voiceId: employee.voice_id ?? "",
           greeting: employee.greeting ?? "",
         }
-      : { name: "", description: "", role: "", language: "en", greeting: "" };
+      : {
+          name: "",
+          description: "",
+          role: "",
+          language: "en",
+          voiceId: "",
+          greeting: "",
+        };
     setDraft({ ...base, ...draft, [key]: value });
   }
 
@@ -129,10 +139,18 @@ export default function EmployeeSettingsPage({
         description: employee.description,
         role: employee.role,
         language: employee.language,
+        voiceId: employee.voice_id ?? "",
         greeting: employee.greeting ?? "",
         ...draft,
       }
-    : { name: "", description: "", role: "", language: "en", greeting: "" };
+    : {
+        name: "",
+        description: "",
+        role: "",
+        language: "en",
+        voiceId: "",
+        greeting: "",
+      };
 
   return (
     <AppShell>
@@ -196,6 +214,16 @@ export default function EmployeeSettingsPage({
             </Field>
           </div>
           <Field
+            label="Voice"
+            hint="TTS voice id used for this employee. Empty falls back to the workspace default voice."
+          >
+            <TextInput
+              value={form.voiceId}
+              onChange={(event) => edit("voiceId", event.target.value)}
+              placeholder="e.g. an ElevenLabs voice id available to your API key"
+            />
+          </Field>
+          <Field
             label="Greeting"
             hint="Spoken first when a call connects. Empty means no greeting."
           >
@@ -212,7 +240,8 @@ export default function EmployeeSettingsPage({
         </Card>
         <p className="mt-3 text-xs text-ink-500">
           Status is controlled by Pause/Resume above. Voice catalogs, behavior
-          rules and phone provisioning have no backend fields yet.
+          rules and phone provisioning have no backend fields yet — enter the
+          voice id directly above.
         </p>
       </div>
     </AppShell>

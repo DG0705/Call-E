@@ -154,6 +154,7 @@ services:
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
       ELEVENLABS_MODEL_ID: ${ELEVENLABS_MODEL_ID:-}
+      VOICE_PROVIDER_PREFLIGHT: ${VOICE_PROVIDER_PREFLIGHT:-true}
       TELEPHONY_PROVIDER: ${TELEPHONY_PROVIDER:-mock}
       ASTERISK_URL: ${ASTERISK_URL:-http://asterisk:8088}
       ASTERISK_USERNAME: ${ASTERISK_USERNAME:-}
@@ -164,9 +165,16 @@ services:
       VOICE_RTP_PORT_START: ${VOICE_RTP_PORT_START:-20000}
       VOICE_RTP_PORT_COUNT: ${VOICE_RTP_PORT_COUNT:-100}
       VOICE_RTP_FIRST_PACKET_TIMEOUT_SECONDS: ${VOICE_RTP_FIRST_PACKET_TIMEOUT_SECONDS:-10.0}
-      KAARI_DEV_EXTENSION: ${KAARI_DEV_EXTENSION:-1000}
-      KAARI_DEV_TENANT_ID: ${KAARI_DEV_TENANT_ID:-kaari-planters}
-      KAARI_DEV_AGENT_ID: ${KAARI_DEV_AGENT_ID:-kaari-sales-agent}
+      # Generic dev inbound routing: one explicitly configured
+      # extension/tenant/agent. Empty values leave the extension unmapped
+      # (no silent fallback). The deprecated KAARI_DEV_* aliases still work
+      # as explicit overrides.
+      DEV_INBOUND_EXTENSION: ${DEV_INBOUND_EXTENSION:-1000}
+      DEV_INBOUND_TENANT_ID: ${DEV_INBOUND_TENANT_ID:-kaari-planters}
+      DEV_INBOUND_AGENT_ID: ${DEV_INBOUND_AGENT_ID:-kaari-sales-agent}
+      KAARI_DEV_EXTENSION: ${KAARI_DEV_EXTENSION:-}
+      KAARI_DEV_TENANT_ID: ${KAARI_DEV_TENANT_ID:-}
+      KAARI_DEV_AGENT_ID: ${KAARI_DEV_AGENT_ID:-}
     build:
       context: .
       dockerfile: services/voice-service/Dockerfile
@@ -214,6 +222,15 @@ services:
     environment:
       <<: *fastapi-environment
       SERVICE_NAME: knowledge-service
+      KNOWLEDGE_DATABASE_NAME: ${KNOWLEDGE_DATABASE_NAME:-call_e_knowledge}
+      # Embeddings drive RAG quality. Unset/mock => deterministic lexical-only
+      # mock (a loud warning is logged). Configure openai_compatible for real
+      # semantic retrieval.
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-mock}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.openai.com/v1}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      EMBEDDING_TIMEOUT_SECONDS: ${EMBEDDING_TIMEOUT_SECONDS:-30}
     build:
       context: .
       dockerfile: services/knowledge-service/Dockerfile

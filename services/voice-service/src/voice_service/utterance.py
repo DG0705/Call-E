@@ -30,7 +30,7 @@ class UtteranceConfig:
     sample_rate: int = PCM_DEFAULT_SAMPLE_RATE
     min_utterance_ms: int = 400
     max_utterance_ms: int = 15_000
-    end_silence_ms: int = 800
+    end_silence_ms: int = 400
     silence_rms_threshold: float = 400.0
 
 

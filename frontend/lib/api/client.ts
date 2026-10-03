@@ -24,6 +24,25 @@ export class ApiError extends Error {
   }
 }
 
+/** Parse the platform error envelope `{ error: { code, message } }`.
+ *
+ * Falls back to a flat `{ code, message }` body and finally to the HTTP
+ * status so a real backend message always reaches the user without leaking
+ * stack traces (the backend never emits them).
+ */
+function parseErrorBody(payload: unknown, status: number): { message: string; code?: string } {
+  const fallback = { message: `Request failed with status ${status}` };
+  if (!payload || typeof payload !== "object") return fallback;
+  const body = payload as {
+    message?: string;
+    code?: string;
+    error?: { message?: string; code?: string };
+  };
+  const message = body.error?.message ?? body.message;
+  const code = body.error?.code ?? body.code;
+  return { message: message ?? fallback.message, code };
+}
+
 interface RequestOptions {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
@@ -49,19 +68,15 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
-    let code: string | undefined;
-    let message = `Request failed with status ${response.status}`;
+    let parsed: { message: string; code?: string } = {
+      message: `Request failed with status ${response.status}`,
+    };
     try {
-      const payload = (await response.json()) as {
-        message?: string;
-        code?: string;
-      };
-      if (payload.message) message = payload.message;
-      if (payload.code) code = payload.code;
+      parsed = parseErrorBody(await response.json(), response.status);
     } catch {
       /* non-JSON error body — keep the default message */
     }
-    throw new ApiError(response.status, message, code);
+    throw new ApiError(response.status, parsed.message, parsed.code);
   }
 
   if (response.status === 204) return undefined as T;
@@ -86,19 +101,15 @@ export async function apiUpload<T>(
   });
 
   if (!response.ok) {
-    let code: string | undefined;
-    let message = `Request failed with status ${response.status}`;
+    let parsed: { message: string; code?: string } = {
+      message: `Request failed with status ${response.status}`,
+    };
     try {
-      const payload = (await response.json()) as {
-        message?: string;
-        code?: string;
-      };
-      if (payload.message) message = payload.message;
-      if (payload.code) code = payload.code;
+      parsed = parseErrorBody(await response.json(), response.status);
     } catch {
       /* non-JSON error body — keep the default message */
     }
-    throw new ApiError(response.status, message, code);
+    throw new ApiError(response.status, parsed.message, parsed.code);
   }
   return (await response.json()) as T;
 }

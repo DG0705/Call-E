@@ -172,3 +172,111 @@ def test_search_validates_input() -> None:
     assert empty_tenant.status_code == 422
     assert zero_top_k.status_code == 422
     assert huge_top_k.status_code == 422
+
+
+def _seed_ready_document(client: TestClient, tenant_id: str) -> tuple[str, str]:
+    """Create a source + ingested document; return (source_id, document_id)."""
+    source = client.post(
+        "/api/v1/knowledge/sources", json={"tenant_id": tenant_id, "name": "support"}
+    ).json()
+    document = client.post(
+        "/api/v1/knowledge/documents",
+        json={
+            "tenant_id": tenant_id,
+            "source_id": source["id"],
+            "title": "Refund policy",
+            "raw_content": "Customers may request a full refund within 30 days.",
+        },
+    ).json()
+    ingest = client.post(
+        f"/api/v1/knowledge/documents/{document['id']}/ingest",
+        json={"tenant_id": tenant_id},
+    )
+    assert ingest.status_code == 200
+    return source["id"], document["id"]
+
+
+def test_delete_source_cascades_documents_and_chunks() -> None:
+    resolver = MappingAgentKnowledgeResolver()
+    client = TestClient(
+        create_knowledge_app(database=create_in_memory_database(agent_sources=resolver))
+    )
+    source_id, _ = _seed_ready_document(client, "tenant-1")
+    resolver.register_agent(agent_id="agent-1", source_ids=[source_id])
+
+    before = client.post(
+        "/api/v1/knowledge/search",
+        json={"tenant_id": "tenant-1", "agent_id": "agent-1", "query": "refund"},
+    )
+    assert len(before.json()["results"]) == 1
+
+    deleted = client.delete(
+        f"/api/v1/knowledge/sources/{source_id}?tenant_id=tenant-1"
+    )
+    assert deleted.status_code == 204
+
+    assert client.get("/api/v1/knowledge/sources?tenant_id=tenant-1").json() == []
+    assert client.get("/api/v1/knowledge/documents?tenant_id=tenant-1").json() == []
+    after = client.post(
+        "/api/v1/knowledge/search",
+        json={"tenant_id": "tenant-1", "agent_id": "agent-1", "query": "refund"},
+    )
+    assert after.json()["results"] == []
+
+
+def test_delete_document_removes_its_chunks_only() -> None:
+    resolver = MappingAgentKnowledgeResolver()
+    client = TestClient(
+        create_knowledge_app(database=create_in_memory_database(agent_sources=resolver))
+    )
+    source_id, document_id = _seed_ready_document(client, "tenant-1")
+    resolver.register_agent(agent_id="agent-1", source_ids=[source_id])
+
+    deleted = client.delete(
+        f"/api/v1/knowledge/documents/{document_id}?tenant_id=tenant-1"
+    )
+    assert deleted.status_code == 204
+
+    # The source survives; only the document and its chunks are gone.
+    assert len(client.get("/api/v1/knowledge/sources?tenant_id=tenant-1").json()) == 1
+    assert client.get("/api/v1/knowledge/documents?tenant_id=tenant-1").json() == []
+    after = client.post(
+        "/api/v1/knowledge/search",
+        json={"tenant_id": "tenant-1", "agent_id": "agent-1", "query": "refund"},
+    )
+    assert after.json()["results"] == []
+
+
+def test_delete_is_tenant_scoped() -> None:
+    client = TestClient(create_knowledge_app())
+    source_id, document_id = _seed_ready_document(client, "tenant-1")
+
+    wrong_tenant_source = client.delete(
+        f"/api/v1/knowledge/sources/{source_id}?tenant_id=tenant-2"
+    )
+    wrong_tenant_document = client.delete(
+        f"/api/v1/knowledge/documents/{document_id}?tenant_id=tenant-2"
+    )
+
+    assert wrong_tenant_source.status_code == 404
+    assert wrong_tenant_document.status_code == 404
+    # Data is untouched for the owning tenant.
+    assert len(client.get("/api/v1/knowledge/sources?tenant_id=tenant-1").json()) == 1
+    assert len(client.get("/api/v1/knowledge/documents?tenant_id=tenant-1").json()) == 1
+
+
+def test_delete_missing_records_return_404() -> None:
+    client = TestClient(create_knowledge_app())
+
+    missing_source = client.delete(
+        "/api/v1/knowledge/sources/ghost?tenant_id=tenant-1"
+    )
+    missing_document = client.delete(
+        "/api/v1/knowledge/documents/ghost?tenant_id=tenant-1"
+    )
+
+    assert missing_source.status_code == 404
+    assert missing_source.json()["error"]["code"] == "knowledge_source_not_found"
+    assert missing_document.status_code == 404
+    assert missing_document.json()["error"]["code"] == "knowledge_document_not_found"
+

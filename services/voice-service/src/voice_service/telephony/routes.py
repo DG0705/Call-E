@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, Field
 
-from voice_service.telephony.dev_routing import KaariDevRouter
+from voice_service.telephony.dev_routing import DevInboundRouter
 from voice_service.telephony.models import TelephonyCall
 
 

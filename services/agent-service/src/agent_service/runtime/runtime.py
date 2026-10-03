@@ -51,6 +51,22 @@ class RuntimeResult(LLMResponse):
     tool_execution_history: list[dict[str, object]] = Field(default_factory=list)
 
 
+class RuntimeStreamEvent(BaseModel):
+    """One incremental piece of a runtime turn for streaming callers.
+
+    ``text`` carries speakable assistant fragments as they arrive;
+    ``tool`` marks tool execution progress (names only, never arguments or
+    results); ``done`` terminates the turn with the complete result.
+    """
+
+    type: str
+    delta: str = ""
+    tool_name: str | None = None
+    call_id: str | None = None
+    success: bool | None = None
+    result: RuntimeResult | None = None
+
+
 class ToolExecutionRecord(BaseModel):
     """One tool call and its result, captured during a single respond() call."""
 
@@ -102,7 +118,34 @@ class AgentRuntime:
     async def respond(
         self, *, tenant_id: str, agent_id: str, conversation_id: str, message: str
     ) -> RuntimeResult:
-        """Append user input, call the provider, and retain local context."""
+        """Append user input, call the provider, and retain local context.
+
+        Buffered facade over :meth:`respond_stream`; the contract is unchanged
+        for non-streaming callers.
+        """
+        final: RuntimeResult | None = None
+        async for event in self.respond_stream(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            conversation_id=conversation_id,
+            message=message,
+        ):
+            if event.type == "done" and event.result is not None:
+                final = event.result
+        if final is None:
+            raise ValueError("Runtime stream ended without a result.")
+        return final
+
+    async def respond_stream(
+        self, *, tenant_id: str, agent_id: str, conversation_id: str, message: str
+    ) -> AsyncIterator[RuntimeStreamEvent]:
+        """Stream one turn as text, tool-progress, and terminal events.
+
+        Assistant text deltas are user-facing fragments safe to speak as they
+        arrive. Tool arguments, results, and internal reasoning never appear
+        in ``text`` events. Cancellation propagates to the provider stream so
+        barge-in stops generation promptly.
+        """
         agent = await self.get_agent(tenant_id=tenant_id, agent_id=agent_id)
         log_agent_event(
             self._logger,
@@ -137,25 +180,50 @@ class AgentRuntime:
                 ],
             )
         context.messages.append(ConversationMessage(role="user", content=message))
-        async def _timed_generate() -> LLMResponse:
+
+        async def _stream_generation() -> AsyncIterator[LLMStreamEvent]:
             start = time.monotonic()
             try:
-                return await self._generate_streaming(
+                async for event in self._generate_events(
                     agent,
                     context,
                     system_instruction=turn_instruction,
                     llm_start=start,
                     first_token_ms=first_token_holder,
                     first_sentence_ms=first_sentence_holder,
-                )
+                ):
+                    yield event
             finally:
                 nonlocal llm_ms
                 llm_ms += int((time.monotonic() - start) * 1000)
 
-        provider_response = await _timed_generate()
+        first_token_logged = False
         tool_history: list[dict[str, object]] = []
         iterations = 0
-        while provider_response.tool_calls:
+        provider_response: LLMResponse | None = None
+        while True:
+            async for event in _stream_generation():
+                if event.text_delta:
+                    if not first_token_logged:
+                        first_token_logged = True
+                        log_agent_event(
+                            self._logger,
+                            "RUNTIME_FIRST_TOKEN",
+                            tenant_id=tenant_id,
+                            agent_id=agent_id,
+                            conversation_id=conversation_id,
+                            elapsed_ms=int(
+                                (time.monotonic() - turn_start) * 1000
+                            ),
+                            message="RUNTIME_FIRST_TOKEN",
+                        )
+                    yield RuntimeStreamEvent(type="text", delta=event.text_delta)
+                if event.done and event.full_response is not None:
+                    provider_response = event.full_response
+            if provider_response is None:
+                raise ValueError("LLM stream ended without a completion event.")
+            if not provider_response.tool_calls:
+                break
             if self._tool_engine is None:
                 provider_response = self._tool_engine_unavailable_response(provider_response)
                 break
@@ -180,6 +248,11 @@ class AgentRuntime:
                     tool_name=provider_call.tool_name,
                     call_id=provider_call.call_id,
                     success=None,
+                )
+                yield RuntimeStreamEvent(
+                    type="tool",
+                    tool_name=provider_call.tool_name,
+                    call_id=provider_call.call_id,
                 )
                 tool_start = time.monotonic()
                 try:
@@ -206,6 +279,12 @@ class AgentRuntime:
                     call_id=result.call_id,
                     success=result.success,
                 )
+                yield RuntimeStreamEvent(
+                    type="tool",
+                    tool_name=result.tool_name,
+                    call_id=result.call_id,
+                    success=result.success,
+                )
                 self._append_tool_result(context, result)
                 tool_history.append({
                     "tool_name": result.tool_name,
@@ -216,7 +295,7 @@ class AgentRuntime:
                     "error": result.error,
                 })
             iterations += 1
-            provider_response = await _timed_generate()
+        assert provider_response is not None
         context.messages.append(
             ConversationMessage(role="assistant", content=provider_response.text)
         )
@@ -244,11 +323,14 @@ class AgentRuntime:
             tool_iterations=iterations,
             turn_ms=int((time.monotonic() - turn_start) * 1000),
         )
-        return RuntimeResult(
-            conversation_id=conversation_id,
-            agent_id=agent_id,
-            tool_execution_history=tool_history,
-            **provider_response.model_dump(),
+        yield RuntimeStreamEvent(
+            type="done",
+            result=RuntimeResult(
+                conversation_id=conversation_id,
+                agent_id=agent_id,
+                tool_execution_history=tool_history,
+                **provider_response.model_dump(),
+            ),
         )
 
     async def _generate(
@@ -265,7 +347,7 @@ class AgentRuntime:
             tools=tools,
         )
 
-    async def _generate_streaming(
+    async def _generate_events(
         self,
         agent: Agent,
         context: ConversationContext,
@@ -274,14 +356,13 @@ class AgentRuntime:
         llm_start: float,
         first_token_ms: dict[str, int],
         first_sentence_ms: dict[str, int],
-    ) -> LLMResponse:
-        """Consume the provider stream, timing first token and first sentence.
+    ) -> AsyncIterator[LLMStreamEvent]:
+        """Yield one generation's provider events, timing first token/sentence.
 
-        Only the terminal completion feeds the tool loop, so partial tool
-        fragments can never execute. Providers without streaming fall back to
-        their buffered default. First-sentence timing marks when a speakable
-        segment exists; the complete response is still returned (sentence
-        handoff over the service boundary is future work).
+        The terminal completion event is yielded last; only it feeds the tool
+        loop, so partial tool fragments can never execute. Providers without
+        streaming fall back to their buffered default. Cancellation
+        propagates so barge-in stops generation promptly.
         """
         tools = (
             self._tool_engine.registry.available_for(agent)
@@ -298,9 +379,13 @@ class AgentRuntime:
             first_token_ms["ms"] = buffered_ms
             if _has_sentence_end(response.text):
                 first_sentence_ms["ms"] = buffered_ms
-            return response
+            yield LLMStreamEvent(
+                text_delta=response.text,
+                done=True,
+                full_response=response,
+            )
+            return
         text_so_far: list[str] = []
-        completed: LLMResponse | None = None
         try:
             events = stream(
                 system_instruction=system_instruction,
@@ -319,7 +404,12 @@ class AgentRuntime:
             first_token_ms["ms"] = buffered_ms
             if _has_sentence_end(response.text):
                 first_sentence_ms["ms"] = buffered_ms
-            return response
+            yield LLMStreamEvent(
+                text_delta=response.text,
+                done=True,
+                full_response=response,
+            )
+            return
 
         async def _chained() -> AsyncIterator[LLMStreamEvent]:
             yield first_event
@@ -339,11 +429,7 @@ class AgentRuntime:
                     first_sentence_ms["ms"] = int(
                         (time.monotonic() - llm_start) * 1000
                     )
-            if event.done and event.full_response is not None:
-                completed = event.full_response
-        if completed is None:
-            raise ValueError("LLM stream ended without a completion event.")
-        return completed
+            yield event
 
     async def _build_turn_instruction(
         self, agent: Agent, query: str, *, conversation_id: str

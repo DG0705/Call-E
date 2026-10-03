@@ -1445,6 +1445,121 @@ def test_greeting_cache_key_changes_with_configuration() -> None:
     assert greeting_cache_key(**base) == key
 
 
+class VoiceRecordingTTSProvider(MockTTSProvider):
+    """Mock TTS recording the voice_id of every synthesis."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.voice_ids: list[str | None] = []
+
+    async def synthesize(self, **kwargs: object) -> TTSResult:
+        self.voice_ids.append(kwargs.get("voice_id"))  # type: ignore[arg-type]
+        return await super().synthesize(**kwargs)
+
+
+def _manager_with_agent_greeting(
+    *, greeting: str | None, voice_id: str | None
+) -> tuple[VoiceSessionManager, object]:
+    from voice_service.agent_runtime import AgentConfiguration
+
+    tts = VoiceRecordingTTSProvider()
+    runtime = FakeAgentRuntimeClient(
+        agent=AgentConfiguration(
+            id="agent-1",
+            tenant_id="tenant-1",
+            language="en",
+            voice_id=voice_id,
+            greeting=greeting,
+        )
+    )
+    return build_manager(tts=tts, runtime=runtime), tts
+
+
+def test_greeting_uses_agent_voice_id() -> None:
+    manager, tts = _manager_with_agent_greeting(
+        greeting="Welcome in.", voice_id="agent-voice-1"
+    )
+    session = asyncio.run(
+        manager.create_session(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    audio = asyncio.run(
+        manager.synthesize_greeting(
+            tenant_id="tenant-1", session_id=session.session_id
+        )
+    )
+
+    assert audio is not None
+    assert audio.data != b""
+    assert tts.voice_ids == ["agent-voice-1"]
+
+
+def test_no_greeting_configured_synthesizes_nothing() -> None:
+    manager, tts = _manager_with_agent_greeting(greeting=None, voice_id="agent-voice-1")
+    session = asyncio.run(
+        manager.create_session(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    audio = asyncio.run(
+        manager.synthesize_greeting(
+            tenant_id="tenant-1", session_id=session.session_id
+        )
+    )
+
+    assert audio is None
+    assert tts.voice_ids == []
+    assert "Kaari" not in (session.metadata.get("greeting") or "")
+
+
+def test_greeting_without_voice_id_uses_provider_default() -> None:
+    manager, tts = _manager_with_agent_greeting(
+        greeting="Welcome in.", voice_id=None
+    )
+    session = asyncio.run(
+        manager.create_session(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    audio = asyncio.run(
+        manager.synthesize_greeting(
+            tenant_id="tenant-1", session_id=session.session_id
+        )
+    )
+
+    assert audio is not None
+    assert tts.voice_ids == [None]
+
+
+def test_greeting_and_turn_share_resolved_voice_id() -> None:
+    manager, tts = _manager_with_agent_greeting(
+        greeting="Welcome in.", voice_id="agent-voice-1"
+    )
+    session = asyncio.run(
+        manager.create_session(
+            tenant_id="tenant-1", agent_id="agent-1", conversation_id="conversation-1"
+        )
+    )
+
+    async def main() -> None:
+        await manager.synthesize_greeting(
+            tenant_id="tenant-1", session_id=session.session_id
+        )
+        await manager.process_audio_input(
+            tenant_id="tenant-1",
+            session_id=session.session_id,
+            audio=AudioChunk(data=b"audio", format="pcm"),
+        )
+
+    asyncio.run(main())
+
+    assert tts.voice_ids == ["agent-voice-1", "agent-voice-1"]
+
+
 def test_stt_timeout_retries_once_then_recovers(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

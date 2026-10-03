@@ -22,6 +22,7 @@ from voice_service.config import (
     load_utterance_settings,
 )
 from voice_service.database import VoiceDatabase, create_voice_database
+from voice_service.diagnostics import verify_deepgram, verify_elevenlabs
 from voice_service.factory import STTProviderFactory, TTSProviderFactory
 from voice_service.routes.voice import router as voice_router
 from voice_service.session import VoiceSessionManager
@@ -38,7 +39,7 @@ from voice_service.telephony import (
 from voice_service.telephony.asterisk.adapter import AsteriskAdapter
 from voice_service.telephony.asterisk.ari_client import AriEventStream
 from voice_service.telephony.asterisk.live_call import AsteriskLiveCallRunner
-from voice_service.telephony.dev_routing import KaariDevRouter
+from voice_service.telephony.dev_routing import DevInboundRouter
 from voice_service.telephony.events import (
     TELEPHONY_EVENT_LOGGER,
     EventPublisher,
@@ -68,7 +69,7 @@ def create_voice_app(
     telephony_settings: TelephonySettings | None = None,
     call_store: CallStore | None = None,
     event_publisher: EventPublisher | None = None,
-    dev_inbound_router: KaariDevRouter | None = None,
+    dev_inbound_router: DevInboundRouter | None = None,
     live_call_runner: AsteriskLiveCallRunner | None = None,
     enable_live_calls: bool | None = None,
 ) -> FastAPI:
@@ -88,12 +89,14 @@ def create_voice_app(
 
     runtime = agent_runtime or create_agent_runtime_http_client()
     resolved_turn_settings = turn_settings or load_turn_settings()
+    resolved_stt_settings = stt_settings or load_stt_settings()
+    resolved_tts_settings = tts_settings or load_tts_settings()
     greeting_store = None
     if database is not None:
         greeting_store = getattr(database, "greeting_store", None)
     manager = VoiceSessionManager(
-        stt_provider=stt_provider or STTProviderFactory.create(stt_settings or load_stt_settings()),
-        tts_provider=tts_provider or TTSProviderFactory.create(tts_settings or load_tts_settings()),
+        stt_provider=stt_provider or STTProviderFactory.create(resolved_stt_settings),
+        tts_provider=tts_provider or TTSProviderFactory.create(resolved_tts_settings),
         agent_runtime=runtime,
         session_store=session_store,
         turn_settings=resolved_turn_settings,
@@ -113,7 +116,7 @@ def create_voice_app(
         event_publisher=event_publisher or LoggingEventPublisher(),
         turn_settings=resolved_turn_settings,
     )
-    router_instance = dev_inbound_router or KaariDevRouter.from_environment()
+    router_instance = dev_inbound_router or DevInboundRouter.from_environment()
     runner = live_call_runner or _build_live_call_runner(
         provider=provider,
         telephony=telephony,
@@ -131,6 +134,10 @@ def create_voice_app(
         """
         if database is not None:
             await database.initialize()
+        await _run_provider_preflight(
+            stt_settings=resolved_stt_settings,
+            tts_settings=resolved_tts_settings,
+        )
         if runner is not None:
             await runner.start()
             logging.getLogger(TELEPHONY_EVENT_LOGGER).info(
@@ -175,11 +182,44 @@ async def _close_provider(provider: object) -> None:
         await close_method()
 
 
+async def _run_provider_preflight(
+    *, stt_settings: STTSettings, tts_settings: TTSSettings
+) -> None:
+    """Verify real speech-provider credentials once at startup.
+
+    Opt-in via ``VOICE_PROVIDER_PREFLIGHT`` so tests and credential-less local
+    runs never make outbound calls. Best-effort: every outcome is logged and
+    nothing here can fail startup — the call path already survives provider
+    errors at runtime, this just makes a bad key obvious before the first call.
+    """
+    if os.getenv("VOICE_PROVIDER_PREFLIGHT", "").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        return
+    try:
+        if tts_settings.provider == "elevenlabs" and tts_settings.elevenlabs_api_key:
+            await verify_elevenlabs(
+                api_key=tts_settings.elevenlabs_api_key,
+                voice_id=tts_settings.elevenlabs_voice_id,
+            )
+        if stt_settings.provider == "deepgram" and stt_settings.deepgram_api_key:
+            await verify_deepgram(api_key=stt_settings.deepgram_api_key)
+    except Exception:  # pragma: no cover - diagnostics must never break startup
+        logging.getLogger("voice_service.diagnostics").warning(
+            "PROVIDER_PREFLIGHT_ERROR — credential verification did not "
+            "complete; startup continues.",
+            exc_info=True,
+        )
+
+
 def _build_live_call_runner(
     *,
     provider: TelephonyProvider,
     telephony: TelephonyService,
-    dev_router: KaariDevRouter,
+    dev_router: DevInboundRouter,
     settings: TelephonySettings,
     enable_live_calls: bool | None,
 ) -> AsteriskLiveCallRunner | None:

@@ -1,5 +1,6 @@
 """Tests for the telephony HTTP routes."""
 
+import pytest
 from fastapi.testclient import TestClient
 
 from voice_service.agent_runtime import AgentConfiguration, RuntimeResult
@@ -41,7 +42,9 @@ def build_client() -> TestClient:
             agent_runtime=FakeAgentRuntimeClient(),
             stt_provider=MockSTTProvider(),
             tts_provider=MockTTSProvider(),
-            dev_inbound_router=KaariDevRouter("1000"),
+            dev_inbound_router=KaariDevRouter(
+                "1000", tenant_id="kaari-planters", agent_id="kaari-sales-agent"
+            ),
         )
     )
 
@@ -223,13 +226,89 @@ def test_dev_router_supports_tenant_agent_overrides() -> None:
     assert route.destination_number == "1000"
 
 
-def test_dev_router_defaults_still_resolve_kaari() -> None:
+def test_dev_router_without_configuration_does_not_fall_back_to_kaari() -> None:
+    from call_e_shared.exceptions import PlatformError
+
     from voice_service.telephony.dev_routing import KaariDevRouter
 
-    route = KaariDevRouter("1000").resolve(destination_number="1000")
+    router = KaariDevRouter("1000")
 
-    assert route.tenant_id == "kaari-planters"
-    assert route.agent_id == "kaari-sales-agent"
+    with pytest.raises(PlatformError) as excinfo:
+        router.resolve(destination_number="1000")
+
+    assert excinfo.value.code == "inbound_extension_unmapped"
+
+
+def test_dev_router_partial_configuration_is_unmapped() -> None:
+    from call_e_shared.exceptions import PlatformError
+
+    from voice_service.telephony.dev_routing import KaariDevRouter
+
+    router = KaariDevRouter("1000", tenant_id="demo-co", agent_id=None)
+
+    with pytest.raises(PlatformError) as excinfo:
+        router.resolve(destination_number="1000")
+
+    assert excinfo.value.code == "inbound_extension_unmapped"
+
+
+def test_dev_router_explicit_ids_win_over_configuration() -> None:
+    from voice_service.telephony.dev_routing import KaariDevRouter
+
+    router = KaariDevRouter(
+        "1000", tenant_id="demo-co", agent_id="demo-assistant"
+    )
+
+    route = router.resolve(
+        destination_number="1000", tenant_id="other-tenant", agent_id="other-agent"
+    )
+
+    assert route.tenant_id == "other-tenant"
+    assert route.agent_id == "other-agent"
+
+
+def test_dev_router_from_environment_prefers_generic_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from voice_service.telephony.dev_routing import KaariDevRouter
+
+    monkeypatch.setenv("DEV_INBOUND_EXTENSION", "2000")
+    monkeypatch.setenv("DEV_INBOUND_TENANT_ID", "demo-co")
+    monkeypatch.setenv("DEV_INBOUND_AGENT_ID", "demo-assistant")
+    monkeypatch.setenv("KAARI_DEV_EXTENSION", "1000")
+    monkeypatch.setenv("KAARI_DEV_TENANT_ID", "kaari-planters")
+    monkeypatch.setenv("KAARI_DEV_AGENT_ID", "kaari-sales-agent")
+
+    router = KaariDevRouter.from_environment()
+    route = router.resolve(destination_number="2000")
+
+    assert route.tenant_id == "demo-co"
+    assert route.agent_id == "demo-assistant"
+
+
+def test_dev_router_from_environment_unconfigured_is_unmapped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from call_e_shared.exceptions import PlatformError
+
+    from voice_service.telephony.dev_routing import KaariDevRouter
+
+    for name in (
+        "DEV_INBOUND_EXTENSION",
+        "DEV_INBOUND_TENANT_ID",
+        "DEV_INBOUND_AGENT_ID",
+        "KAARI_DEV_EXTENSION",
+        "KAARI_DEV_TENANT_ID",
+        "KAARI_DEV_AGENT_ID",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    router = KaariDevRouter.from_environment()
+
+    with pytest.raises(PlatformError) as excinfo:
+        router.resolve(destination_number="1000")
+
+    assert excinfo.value.code == "inbound_extension_unmapped"
 
 
 def test_list_calls_route_returns_tenant_history_newest_first() -> None:

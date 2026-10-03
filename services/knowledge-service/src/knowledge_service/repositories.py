@@ -57,6 +57,12 @@ class KnowledgeSourceRepository:
         documents = await self._collection.find({"tenant_id": tenant_id})
         return [KnowledgeSource.model_validate(document) for document in documents]
 
+    async def delete(self, *, tenant_id: str, source_id: str) -> int:
+        """Delete one source within its tenant; returns rows removed."""
+        return await self._collection.delete_many(
+            {"_id": source_id, "tenant_id": tenant_id}
+        )
+
 
 class KnowledgeDocumentRepository:
     """Access to the tenant-scoped knowledge document collection."""
@@ -95,3 +101,15 @@ class KnowledgeDocumentRepository:
             {"tenant_id": tenant_id, "source_id": {"$in": source_ids}}
         )
         return [KnowledgeDocument.model_validate(document) for document in documents]
+
+    async def delete(self, *, tenant_id: str, document_id: str) -> int:
+        """Delete one document within its tenant; returns rows removed."""
+        return await self._collection.delete_many(
+            {"_id": document_id, "tenant_id": tenant_id}
+        )
+
+    async def delete_by_source(self, *, tenant_id: str, source_id: str) -> int:
+        """Delete every document in one source within its tenant."""
+        return await self._collection.delete_many(
+            {"tenant_id": tenant_id, "source_id": source_id}
+        )

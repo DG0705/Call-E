@@ -229,6 +229,24 @@ export const knowledgeApi = {
       ),
       { token },
     ),
+  deleteSource: (sourceId: string, tenantId: string, token?: string) =>
+    apiRequest<void>(
+      KNOWLEDGE_API,
+      withTenant(
+        `/api/v1/knowledge/sources/${encodeURIComponent(sourceId)}`,
+        tenantId,
+      ),
+      { method: "DELETE", token },
+    ),
+  deleteDocument: (documentId: string, tenantId: string, token?: string) =>
+    apiRequest<void>(
+      KNOWLEDGE_API,
+      withTenant(
+        `/api/v1/knowledge/documents/${encodeURIComponent(documentId)}`,
+        tenantId,
+      ),
+      { method: "DELETE", token },
+    ),
   uploadFiles: (tenantId: string, files: File[], token?: string) => {
     const form = new FormData();
     form.append("tenant_id", tenantId);

@@ -1,6 +1,6 @@
 """Knowledge ingestion and retrieval routes."""
 
-from fastapi import APIRouter, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, File, Form, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from knowledge_service.models import (
@@ -206,6 +206,28 @@ async def get_document(
     return await request.app.state.document_service.get_document(
         tenant_id=tenant_id, document_id=document_id
     )
+
+
+@router.delete("/api/v1/knowledge/sources/{source_id}", status_code=204)
+async def delete_source(
+    request: Request, source_id: str, tenant_id: str = Query(min_length=1)
+) -> Response:
+    """Delete one tenant-scoped source with its documents and chunks."""
+    await request.app.state.source_service.delete_source(
+        tenant_id=tenant_id, source_id=source_id
+    )
+    return Response(status_code=204)
+
+
+@router.delete("/api/v1/knowledge/documents/{document_id}", status_code=204)
+async def delete_document(
+    request: Request, document_id: str, tenant_id: str = Query(min_length=1)
+) -> Response:
+    """Delete one tenant-scoped document and its embedded chunks."""
+    await request.app.state.document_service.delete_document(
+        tenant_id=tenant_id, document_id=document_id
+    )
+    return Response(status_code=204)
 
 
 @router.post(

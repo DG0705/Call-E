@@ -168,6 +168,38 @@ def test_endpoint_pause_in_sentence_does_not_split() -> None:
     assert len(completed.data) / 320 * 20 >= 1400
 
 
+def test_default_config_endpoints_after_about_400ms_silence() -> None:
+    accumulator = UtteranceAccumulator()
+
+    assert accumulator.config.end_silence_ms == 400
+    frames = [speech_frame() for _ in range(30)] + [
+        silence_frame() for _ in range(25)
+    ]
+
+    completed = feed_frames(accumulator, frames)
+
+    assert completed is not None
+    # 600 ms speech + ~400 ms silence with the default configuration.
+    total_ms = len(completed.data) / 320 * 20
+    assert 900 <= total_ms <= 1200
+
+
+def test_default_config_short_pause_does_not_split() -> None:
+    accumulator = UtteranceAccumulator()
+    frames = (
+        [speech_frame() for _ in range(20)]
+        + [silence_frame() for _ in range(10)]
+        + [speech_frame() for _ in range(20)]
+        + [silence_frame() for _ in range(25)]
+    )
+
+    completed = feed_frames(accumulator, frames)
+
+    assert completed is not None
+    # 200 ms mid-sentence pause stays below the default threshold.
+    assert len(completed.data) / 320 * 20 >= 1200
+
+
 def test_endpoint_longer_sentence_completes() -> None:
     accumulator = UtteranceAccumulator(
         config=UtteranceConfig(
@@ -206,7 +238,7 @@ def test_utterance_settings_reject_non_positive_values(
     monkeypatch.setenv("VOICE_END_SILENCE_MS", "0")
     monkeypatch.setenv("VOICE_END_SILENCE_MS", "not-a-number")
 
-    assert load_utterance_settings().end_silence_ms == 800
+    assert load_utterance_settings().end_silence_ms == 400
 
 
 def test_turn_settings_load_from_environment(

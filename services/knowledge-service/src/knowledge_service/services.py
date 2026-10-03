@@ -1,5 +1,6 @@
 """Application services for knowledge ingestion and retrieval."""
 
+import logging
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -35,6 +36,23 @@ from knowledge_service.retrieval import (
 from knowledge_service.storage import StoredChunk, VectorRepository
 
 
+logger = logging.getLogger("knowledge_service.ingestion")
+
+
+def _ingestion_error_detail(exc: Exception) -> str:
+    """Return a short, secret-free cause for a failed document.
+
+    PlatformError carries a user-safe message; anything else is reduced to its
+    type and message so the UI and logs show why ingestion failed instead of a
+    blank 'unexpected' string. Provider errors never embed credentials.
+    """
+    if isinstance(exc, PlatformError):
+        return exc.message
+    detail = str(exc).strip()
+    text = f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
+    return text[:300]
+
+
 class IngestionResult(BaseModel):
     """Outcome of ingesting one knowledge document."""
 
@@ -46,8 +64,15 @@ class IngestionResult(BaseModel):
 class KnowledgeSourceService:
     """Application boundary for tenant knowledge sources."""
 
-    def __init__(self, repository: KnowledgeSourceRepository) -> None:
+    def __init__(
+        self,
+        repository: KnowledgeSourceRepository,
+        documents: KnowledgeDocumentRepository | None = None,
+        chunks: VectorRepository | None = None,
+    ) -> None:
         self._repository = repository
+        self._documents = documents
+        self._chunks = chunks
 
     async def create_source(
         self,
@@ -85,6 +110,23 @@ class KnowledgeSourceService:
     async def list_sources(self, *, tenant_id: str) -> list[KnowledgeSource]:
         return await self._repository.list_by_tenant(tenant_id=tenant_id)
 
+    async def delete_source(self, *, tenant_id: str, source_id: str) -> None:
+        """Delete one source with its documents and embedded chunks.
+
+        Tenant-scoped: a missing or cross-tenant source resolves to None and
+        raises 404, so one tenant can never delete another tenant's data.
+        Attached agents keep their configuration; the dangling source id is
+        simply skipped at retrieval time.
+        """
+        await self.get_source(tenant_id=tenant_id, source_id=source_id)
+        if self._chunks is not None:
+            await self._chunks.delete_source(tenant_id=tenant_id, source_id=source_id)
+        if self._documents is not None:
+            await self._documents.delete_by_source(
+                tenant_id=tenant_id, source_id=source_id
+            )
+        await self._repository.delete(tenant_id=tenant_id, source_id=source_id)
+
 
 class KnowledgeDocumentService:
     """Application boundary for tenant knowledge documents."""
@@ -93,9 +135,11 @@ class KnowledgeDocumentService:
         self,
         repository: KnowledgeDocumentRepository,
         sources: KnowledgeSourceService,
+        chunks: VectorRepository | None = None,
     ) -> None:
         self._repository = repository
         self._sources = sources
+        self._chunks = chunks
 
     async def create_document(
         self,
@@ -153,6 +197,15 @@ class KnowledgeDocumentService:
         return await self._repository.list_by_tenant_and_sources(
             tenant_id=tenant_id, source_ids=source_ids
         )
+
+    async def delete_document(self, *, tenant_id: str, document_id: str) -> None:
+        """Delete one document and its embedded chunks, scoped to its tenant."""
+        await self.get_document(tenant_id=tenant_id, document_id=document_id)
+        if self._chunks is not None:
+            await self._chunks.delete_document(
+                tenant_id=tenant_id, document_id=document_id
+            )
+        await self._repository.delete(tenant_id=tenant_id, document_id=document_id)
 
 
 class KnowledgeIngestionService:
@@ -212,10 +265,12 @@ class KnowledgeIngestionService:
                 )
         except Exception as exc:
             document.status = DOCUMENT_STATUS_FAILED
-            document.error = (
-                exc.message
-                if isinstance(exc, PlatformError)
-                else "Ingestion failed unexpectedly."
+            document.error = _ingestion_error_detail(exc)
+            logger.warning(
+                "INGESTION_FAILED document_id=%s tenant_id=%s cause=%r",
+                document.id,
+                document.tenant_id,
+                exc,
             )
             await self._documents.save_document(document)
             raise
@@ -277,8 +332,18 @@ class KnowledgeIngestionService:
                 await self.ingest_document(
                     tenant_id=tenant_id, document_id=document.id
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            # The document is already persisted with status=failed and the real
+            # cause by ingest_document/ingest_table_rows. Log it here so the
+            # failure is never silent, then return the failed document so the
+            # upload/website flow reports it honestly instead of raising a 500.
+            logger.error(
+                "INGESTION_ERROR document_id=%s tenant_id=%s title=%r cause=%r",
+                document.id,
+                tenant_id,
+                title,
+                exc,
+            )
         return await self._documents.get_document(
             tenant_id=tenant_id, document_id=document.id
         )
@@ -333,10 +398,12 @@ class KnowledgeIngestionService:
                 )
         except Exception as exc:
             document.status = DOCUMENT_STATUS_FAILED
-            document.error = (
-                exc.message
-                if isinstance(exc, PlatformError)
-                else "Ingestion failed unexpectedly."
+            document.error = _ingestion_error_detail(exc)
+            logger.warning(
+                "INGESTION_FAILED document_id=%s tenant_id=%s cause=%r",
+                document.id,
+                document.tenant_id,
+                exc,
             )
             await self._documents.save_document(document)
             raise

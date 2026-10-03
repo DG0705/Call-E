@@ -29,7 +29,7 @@ from voice_service.telephony.asterisk.adapter import AsteriskAdapter
 from voice_service.telephony.asterisk.ari_client import AriEventStream
 from voice_service.telephony.asterisk.ari_events import AriEvent
 from voice_service.telephony.asterisk.transport import AsteriskTransportError
-from voice_service.telephony.dev_routing import KaariDevRouter
+from voice_service.telephony.dev_routing import DevInboundRouter
 from voice_service.telephony.events import TELEPHONY_EVENT_LOGGER
 from voice_service.telephony.observability import log_telephony_event
 from voice_service.telephony.service import TelephonyService
@@ -115,7 +115,7 @@ class AsteriskLiveCallRunner:
         *,
         adapter: AsteriskAdapter,
         telephony_service: TelephonyService,
-        dev_router: KaariDevRouter,
+        dev_router: DevInboundRouter,
         event_stream: AriEventStream | None = None,
         rtp_host: str = "voice-service",
         rtp_port_start: int = 20000,
