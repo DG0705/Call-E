@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from call_e_shared.exceptions import PlatformError
 from knowledge_service.chunking import ChunkingConfig, chunk_text, normalize_text
-from knowledge_service.embeddings import EmbeddingProvider
+from knowledge_service.embeddings import EmbeddingProvider, EmbeddingResult
 from knowledge_service.extraction import (
     ExtractedText,
     ExtractionError,
@@ -37,6 +37,11 @@ from knowledge_service.storage import StoredChunk, VectorRepository
 
 
 logger = logging.getLogger("knowledge_service.ingestion")
+
+# Upper bound on texts sent to a real embedding provider in one request.
+# Bounding keeps a large document from producing one oversized request while
+# still avoiding a separate network call per chunk.
+DEFAULT_EMBEDDING_BATCH_SIZE = 64
 
 
 def _ingestion_error_detail(exc: Exception) -> str:
@@ -218,11 +223,27 @@ class KnowledgeIngestionService:
         embedder: EmbeddingProvider,
         repository: VectorRepository,
         chunking: ChunkingConfig | None = None,
+        batch_size: int = DEFAULT_EMBEDDING_BATCH_SIZE,
     ) -> None:
+        if batch_size < 1:
+            raise ValueError("batch_size must be at least 1.")
         self._documents = documents
         self._embedder = embedder
         self._repository = repository
         self._chunking = chunking or ChunkingConfig()
+        self._batch_size = batch_size
+
+    async def _embed_chunks(self, texts: list[str]) -> list[EmbeddingResult]:
+        """Embed chunk texts in bounded batches, preserving input order.
+
+        Each batch is one provider request; results are concatenated in order
+        so ``embeddings[i]`` always corresponds to ``texts[i]``.
+        """
+        results: list[EmbeddingResult] = []
+        for start in range(0, len(texts), self._batch_size):
+            batch = texts[start : start + self._batch_size]
+            results.extend(await self._embedder.embed_texts(batch))
+        return results
 
     async def ingest_document(
         self, *, tenant_id: str, document_id: str
@@ -249,8 +270,10 @@ class KnowledgeIngestionService:
             await self._repository.delete_document(
                 tenant_id=tenant_id, document_id=document_id
             )
-            for index, content in enumerate(chunks):
-                embedding = await self._embedder.embed_text(content)
+            embeddings = await self._embed_chunks(chunks)
+            for index, (content, embedding) in enumerate(
+                zip(chunks, embeddings, strict=True)
+            ):
                 await self._repository.save_chunk(
                     StoredChunk(
                         document_id=document.id,
@@ -382,8 +405,10 @@ class KnowledgeIngestionService:
             await self._repository.delete_document(
                 tenant_id=document.tenant_id, document_id=document.id
             )
-            for index, content in enumerate(blocks):
-                embedding = await self._embedder.embed_text(content)
+            embeddings = await self._embed_chunks(blocks)
+            for index, (content, embedding) in enumerate(
+                zip(blocks, embeddings, strict=True)
+            ):
                 await self._repository.save_chunk(
                     StoredChunk(
                         document_id=document.id,

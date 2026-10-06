@@ -31,6 +31,8 @@ class EmbeddingProvider(Protocol):
 
     async def embed_text(self, text: str) -> EmbeddingResult: ...
 
+    async def embed_texts(self, texts: list[str]) -> list[EmbeddingResult]: ...
+
 
 class MockEmbeddingProvider:
     """Deterministic local embedding provider for development and tests."""
@@ -56,9 +58,28 @@ class MockEmbeddingProvider:
             usage={"tokens": len(tokens), "model": self.model_name},
         )
 
+    async def embed_texts(self, texts: list[str]) -> list[EmbeddingResult]:
+        """Embed a batch locally, preserving input order."""
+        return [await self.embed_text(text) for text in texts]
+
 
 class EmbeddingError(Exception):
     """Raised when a real embedding provider cannot embed text."""
+
+
+def _batch_order_key(pair: tuple[int, Any]) -> int:
+    """Sort key preserving request order for a batch embeddings response.
+
+    Uses each item's ``index`` when the provider supplies one and falls back
+    to the item's original position otherwise, so a missing or malformed
+    ``index`` never reorders or drops vectors.
+    """
+    position, item = pair
+    if isinstance(item, dict):
+        index = item.get("index")
+        if isinstance(index, int):
+            return index
+    return position
 
 
 class OpenAICompatibleEmbeddingProvider:
@@ -93,24 +114,62 @@ class OpenAICompatibleEmbeddingProvider:
         self._client = client or httpx.AsyncClient(timeout=timeout_seconds)
 
     async def embed_text(self, text: str) -> EmbeddingResult:
+        payload = await self._post({"input": text, "model": self._model})
+        return self._result(self._parse_embeddings(payload, expected=1)[0])
+
+    async def embed_texts(self, texts: list[str]) -> list[EmbeddingResult]:
+        """Embed a batch in one request, preserving input ordering.
+
+        OpenAI-compatible servers return one object per input carrying its
+        ``index``; results are sorted on it so vectors align with ``texts``
+        even if a provider reorders the array. An empty batch makes no call.
+        """
+        if not texts:
+            return []
+        payload = await self._post({"input": list(texts), "model": self._model})
+        vectors = self._parse_embeddings(payload, expected=len(texts))
+        return [self._result(vector) for vector in vectors]
+
+    async def _post(self, body: dict[str, Any]) -> Any:
         try:
             response = await self._client.post(
                 f"{self._base_url}/embeddings",
-                json={"input": text, "model": self._model},
+                json=body,
                 headers={
                     "Authorization": f"Bearer {self._api_key}",
                     "Content-Type": "application/json",
                 },
             )
             response.raise_for_status()
-            payload = response.json()
-            vector = [float(value) for value in payload["data"][0]["embedding"]]
+            return response.json()
         except httpx.HTTPError as exc:
+            # Generic message only: the request carries the API key, so it is
+            # never echoed into the exception or logs.
             raise EmbeddingError("Embedding request failed.") from exc
+
+    def _parse_embeddings(self, payload: Any, *, expected: int) -> list[list[float]]:
+        try:
+            data = payload["data"]
+            ordered = [
+                item
+                for _, item in sorted(enumerate(data), key=_batch_order_key)
+            ]
+            vectors = [
+                [float(value) for value in item["embedding"]] for item in ordered
+            ]
         except (KeyError, IndexError, ValueError, TypeError) as exc:
             raise EmbeddingError("Embedding response was malformed.") from exc
-        if not vector:
+        if len(vectors) != expected:
+            raise EmbeddingError(
+                "Embedding response count did not match the requested inputs."
+            )
+        if any(not vector for vector in vectors):
             raise EmbeddingError("Embedding response was empty.")
+        if len({len(vector) for vector in vectors}) != 1:
+            raise EmbeddingError("Embedding response had inconsistent dimensions.")
+        return vectors
+
+    def _result(self, vector: list[float]) -> EmbeddingResult:
         return EmbeddingResult(
             vector=vector,
             dimensions=len(vector),
@@ -128,9 +187,11 @@ def create_embedding_provider() -> EmbeddingProvider:
     """Select the embedding provider from environment configuration.
 
     ``EMBEDDING_PROVIDER=openai_compatible`` (plus base URL, key, model)
-    activates real embeddings; anything else — including unset — keeps the
-    deterministic mock, so tests and credential-less development are honest
-    about which provider is active.
+    activates real embeddings. Unset, empty, or ``mock`` keeps the
+    deterministic mock so tests and credential-less development stay honest
+    about which provider is active. An explicitly-set unknown value is a
+    misconfiguration and fails loudly instead of silently downgrading to
+    lexical-only retrieval.
     """
     provider = os.getenv("EMBEDDING_PROVIDER", "mock").strip().lower()
     if provider == "openai_compatible":
@@ -141,6 +202,11 @@ def create_embedding_provider() -> EmbeddingProvider:
             ),
             model=os.getenv("EMBEDDING_MODEL", ""),
             timeout_seconds=float(os.getenv("EMBEDDING_TIMEOUT_SECONDS", "30")),
+        )
+    if provider not in ("", "mock"):
+        raise ValueError(
+            f"Unknown EMBEDDING_PROVIDER '{provider}'. "
+            "Expected 'mock' or 'openai_compatible'."
         )
     logger.warning(
         "EMBEDDINGS_MOCK_ACTIVE provider=mock — retrieval is lexical-only and "

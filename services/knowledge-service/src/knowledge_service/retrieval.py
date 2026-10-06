@@ -101,13 +101,6 @@ class KnowledgeRetrieverService:
                 tenant_id=tenant_id, agent_id=agent_id
             )
         )
-        resolved = (
-            list(source_ids)
-            if source_ids is not None
-            else await self._sources.resolve_agent_sources(
-                tenant_id=tenant_id, agent_id=agent_id
-            )
-        )
         if not resolved:
             return []
         documents = await self._documents.list_by_tenant_and_sources(
@@ -117,11 +110,17 @@ class KnowledgeRetrieverService:
         if not document_ids:
             return []
         embedding = await self._embedder.embed_text(query)
+        # The query vector is only comparable to chunks embedded by the same
+        # model, so scope the search to this provider's model. Chunks indexed
+        # by a different provider (for example stale mock vectors) are never
+        # silently compared against a real query vector.
+        query_model = str(embedding.usage.get("model") or "")
         matches = await self._repository.search(
             tenant_id=tenant_id,
             vector=embedding.vector,
             top_k=top_k,
             document_ids=document_ids,
+            embedding_model=query_model or None,
         )
         return [
             RetrievedChunk(

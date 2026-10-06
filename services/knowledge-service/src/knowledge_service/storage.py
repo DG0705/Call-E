@@ -47,6 +47,7 @@ class VectorRepository(Protocol):
         vector: list[float],
         top_k: int,
         document_ids: list[str] | None = None,
+        embedding_model: str | None = None,
     ) -> list[ChunkMatch]: ...
 
 
@@ -92,17 +93,27 @@ class CollectionVectorRepository:
         vector: list[float],
         top_k: int,
         document_ids: list[str] | None = None,
+        embedding_model: str | None = None,
     ) -> list[ChunkMatch]:
-        """Return the top-k most similar chunks, always scoped to a tenant."""
+        """Return the top-k most similar chunks, always scoped to a tenant.
+
+        Vectors are only comparable within one embedding model and dimension.
+        When ``embedding_model`` is supplied the query is filtered to chunks
+        produced by that model, and any stored vector whose length differs
+        from the query vector is skipped rather than silently scored zero —
+        so mock-indexed and real-indexed chunks never mix in one result set.
+        """
         if top_k < 1:
             raise ValueError("top_k must be at least 1.")
         query: dict[str, Any] = {"tenant_id": tenant_id}
         if document_ids:
             query["document_id"] = {"$in": document_ids}
+        if embedding_model:
+            query["embedding_model"] = embedding_model
         matches: list[ChunkMatch] = []
         for document in await self._collection.find(query):
             chunk_vector = document.get("vector") or []
-            if not chunk_vector:
+            if not chunk_vector or len(chunk_vector) != len(vector):
                 continue
             matches.append(
                 ChunkMatch(

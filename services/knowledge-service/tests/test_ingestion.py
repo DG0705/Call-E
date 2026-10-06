@@ -560,3 +560,176 @@ def test_database_reports_active_embedder() -> None:
 
     assert build().embedder_name == "mock"
     assert build(embedder=MockEmbeddingProvider()).embedder_name == "mock"
+
+
+def test_embedding_factory_rejects_unknown_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "totally-made-up")
+
+    with pytest.raises(ValueError):
+        create_embedding_provider()
+
+
+def test_embedding_factory_treats_empty_provider_as_mock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The shipped .env sets EMBEDDING_PROVIDER= (empty); that must stay mock so
+    # the service still starts without credentials rather than failing loudly.
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "")
+
+    assert create_embedding_provider().provider_name == "mock"
+
+
+def _real_provider(handler: object) -> OpenAICompatibleEmbeddingProvider:
+    return OpenAICompatibleEmbeddingProvider(
+        api_key="secret",
+        base_url="https://example.invalid/v1",
+        model="text-embedding-3-small",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),  # type: ignore[arg-type]
+    )
+
+
+def test_real_embedding_provider_batches_and_preserves_order() -> None:
+    import json as json_module
+
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json_module.loads(request.content.decode("utf-8"))
+        # Deliberately out of order; each item carries its request index.
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"index": 1, "embedding": [1.0, 1.0]},
+                    {"index": 0, "embedding": [0.0, 0.0]},
+                    {"index": 2, "embedding": [2.0, 2.0]},
+                ]
+            },
+            request=request,
+        )
+
+    results = run(_real_provider(handler).embed_texts(["a", "b", "c"]))
+
+    assert seen["body"] == {
+        "input": ["a", "b", "c"],
+        "model": "text-embedding-3-small",
+    }
+    assert [result.vector for result in results] == [  # type: ignore[attr-defined]
+        [0.0, 0.0],
+        [1.0, 1.0],
+        [2.0, 2.0],
+    ]
+    assert all(result.dimensions == 2 for result in results)  # type: ignore[attr-defined]
+
+
+def test_real_embedding_provider_batch_count_mismatch_raises() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"data": [{"index": 0, "embedding": [0.1]}]},
+            request=request,
+        )
+
+    with pytest.raises(EmbeddingError):
+        run(_real_provider(handler).embed_texts(["a", "b"]))
+
+
+def test_real_embedding_provider_malformed_response_raises() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"unexpected": True}, request=request)
+
+    with pytest.raises(EmbeddingError):
+        run(_real_provider(handler).embed_text("hello"))
+
+
+def test_real_embedding_provider_inconsistent_dimensions_raise() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"index": 0, "embedding": [0.1, 0.2]},
+                    {"index": 1, "embedding": [0.3, 0.4, 0.5]},
+                ]
+            },
+            request=request,
+        )
+
+    with pytest.raises(EmbeddingError):
+        run(_real_provider(handler).embed_texts(["a", "b"]))
+
+
+def test_real_embedding_provider_empty_batch_skips_network() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("embed_texts([]) must not perform a network call")
+
+    assert run(_real_provider(handler).embed_texts([])) == []
+
+
+def test_ingestion_embeds_in_bounded_batches() -> None:
+    from knowledge_service.embeddings import EmbeddingResult
+    from knowledge_service.models import KnowledgeDocument
+    from knowledge_service.services import KnowledgeIngestionService
+    from knowledge_service.storage import StoredChunk
+
+    batch_sizes: list[int] = []
+
+    class _CountingEmbedder:
+        provider_name = "counting"
+
+        async def embed_text(self, text: str) -> EmbeddingResult:
+            return EmbeddingResult(
+                vector=[1.0, 0.0], dimensions=2, usage={"model": "counting-model"}
+            )
+
+        async def embed_texts(self, texts: list[str]) -> list[EmbeddingResult]:
+            batch_sizes.append(len(texts))
+            return [await self.embed_text(text) for text in texts]
+
+    class _RecordingRepository:
+        def __init__(self) -> None:
+            self.saved: list[StoredChunk] = []
+
+        async def delete_document(self, *, tenant_id: str, document_id: str) -> int:
+            return 0
+
+        async def save_chunk(self, chunk: StoredChunk) -> None:
+            self.saved.append(chunk)
+
+    class _StubDocuments:
+        async def get_document(
+            self, *, tenant_id: str, document_id: str
+        ) -> KnowledgeDocument:
+            return KnowledgeDocument(
+                id=document_id,
+                tenant_id=tenant_id,
+                source_id="source-1",
+                title="Long",
+                source_type="text",
+                raw_content="word " * 900,
+                created_at="2026-08-03T12:00:00Z",
+                updated_at="2026-08-03T12:00:00Z",
+            )
+
+        async def save_document(self, document: KnowledgeDocument) -> None:
+            return None
+
+    repository = _RecordingRepository()
+    service = KnowledgeIngestionService(
+        documents=_StubDocuments(),
+        embedder=_CountingEmbedder(),
+        repository=repository,
+        batch_size=2,
+    )
+
+    result = run(service.ingest_document(tenant_id="tenant-1", document_id="document-1"))
+
+    assert result.chunks >= 3  # type: ignore[attr-defined]
+    assert batch_sizes and all(size <= 2 for size in batch_sizes)
+    assert len(batch_sizes) >= 2
+    assert sum(batch_sizes) == result.chunks  # type: ignore[attr-defined]
+    assert len(repository.saved) == result.chunks  # type: ignore[attr-defined]
+    assert all(chunk.embedding_model == "counting-model" for chunk in repository.saved)
+    assert [chunk.index for chunk in repository.saved] == list(range(result.chunks))  # type: ignore[attr-defined]

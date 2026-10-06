@@ -251,10 +251,14 @@ def test_vector_repository_delete_document_removes_chunks() -> None:
     deleted = asyncio.run(
         repository.delete_document(tenant_id="tenant-1", document_id="document-1")
     )
+    # Probe with the same dimensionality as the stored chunks: search now skips
+    # vectors whose length differs from the query instead of scoring them zero,
+    # so an incompatible probe would legitimately return nothing.
+    probe = asyncio.run(MockEmbeddingProvider().embed_text("shipping")).vector
     remaining = asyncio.run(
         repository.search(
             tenant_id="tenant-1",
-            vector=[0.1, 0.2],
+            vector=probe,
             top_k=5,
         )
     )
@@ -461,3 +465,207 @@ def test_build_knowledge_context_formats_retrieved_chunks() -> None:
 
     assert context == "Relevant knowledge:\n[document-1:0] Refunds are available."
     assert build_knowledge_context([]) == ""
+
+
+def test_vector_repository_skips_incompatible_dimensions() -> None:
+    """A query vector of a different length must never match stored chunks."""
+    repository = CollectionVectorRepository(InMemoryKnowledgeCollection())
+    embedding = asyncio.run(MockEmbeddingProvider().embed_text("refund policy"))
+    asyncio.run(
+        repository.save_chunk(
+            StoredChunk(
+                document_id="document-1",
+                chunk_id="document-1:0",
+                tenant_id="tenant-1",
+                source_id="source-1",
+                index=0,
+                content="Refunds are available within 30 days.",
+                vector=embedding.vector,
+                embedding_model="mock-knowledge-embeddings-v1",
+            )
+        )
+    )
+
+    compatible = asyncio.run(
+        repository.search(tenant_id="tenant-1", vector=embedding.vector, top_k=5)
+    )
+    incompatible = asyncio.run(
+        repository.search(tenant_id="tenant-1", vector=[0.1, 0.2, 0.3], top_k=5)
+    )
+
+    assert [hit.document_id for hit in compatible] == ["document-1"]
+    assert incompatible == []
+
+
+def test_vector_repository_filters_by_embedding_model() -> None:
+    """Chunks from another model are excluded even when dimensions match."""
+    repository = CollectionVectorRepository(InMemoryKnowledgeCollection())
+    for chunk_id, model in (("document-1:0", "model-a"), ("document-1:1", "model-b")):
+        asyncio.run(
+            repository.save_chunk(
+                StoredChunk(
+                    document_id="document-1",
+                    chunk_id=chunk_id,
+                    tenant_id="tenant-1",
+                    source_id="source-1",
+                    index=int(chunk_id[-1]),
+                    content=f"content for {model}",
+                    vector=[1.0, 0.0, 0.0],
+                    embedding_model=model,
+                )
+            )
+        )
+
+    only_a = asyncio.run(
+        repository.search(
+            tenant_id="tenant-1",
+            vector=[1.0, 0.0, 0.0],
+            top_k=5,
+            embedding_model="model-a",
+        )
+    )
+    unfiltered = asyncio.run(
+        repository.search(tenant_id="tenant-1", vector=[1.0, 0.0, 0.0], top_k=5)
+    )
+
+    assert [hit.chunk_id for hit in only_a] == ["document-1:0"]
+    assert {hit.chunk_id for hit in unfiltered} == {"document-1:0", "document-1:1"}
+
+
+def test_retriever_scopes_search_to_query_embedding_model() -> None:
+    """The retriever constrains search to the query embedding's model."""
+    from knowledge_service.retrieval import KnowledgeRetrieverService
+
+    class _StubDocuments:
+        async def list_by_tenant_and_sources(
+            self, *, tenant_id: str, source_ids: list[str]
+        ) -> list[KnowledgeDocument]:
+            return [
+                KnowledgeDocument(
+                    id="document-1",
+                    tenant_id=tenant_id,
+                    source_id=source_ids[0],
+                    title="Refund",
+                    source_type="text",
+                    raw_content="refund",
+                    created_at="2026-08-03T12:00:00Z",
+                    updated_at="2026-08-03T12:00:00Z",
+                )
+            ]
+
+    class _RecordingRepository:
+        def __init__(self) -> None:
+            self.kwargs: dict[str, object] | None = None
+
+        async def search(self, **kwargs: object) -> list[object]:
+            self.kwargs = kwargs
+            return []
+
+    repository = _RecordingRepository()
+    retriever = KnowledgeRetrieverService(
+        sources=MappingAgentKnowledgeResolver({"agent-1": ["source-1"]}),
+        documents=_StubDocuments(),
+        embedder=MockEmbeddingProvider(),
+        repository=repository,
+    )
+
+    asyncio.run(
+        retriever.retrieve(
+            tenant_id="tenant-1", agent_id="agent-1", query="refund", top_k=3
+        )
+    )
+
+    assert repository.kwargs is not None
+    assert repository.kwargs["embedding_model"] == "mock-knowledge-embeddings-v1"
+    assert repository.kwargs["document_ids"] == ["document-1"]
+
+
+def test_retrieval_never_mixes_embedding_models() -> None:
+    """Chunks indexed by one model must not answer another model's query."""
+    from knowledge_service.database import InMemoryKnowledgeCollections
+    from knowledge_service.embeddings import EmbeddingResult
+    from knowledge_service.models import KNOWLEDGE_CHUNKS_COLLECTION
+    from knowledge_service.repositories import (
+        KnowledgeDocumentRepository,
+        KnowledgeSourceRepository,
+    )
+    from knowledge_service.retrieval import KnowledgeRetrieverService
+    from knowledge_service.services import (
+        KnowledgeDocumentService,
+        KnowledgeIngestionService,
+        KnowledgeSourceService,
+    )
+
+    class _RenamedMockEmbedder:
+        """Mock vectors re-tagged with a different embedding model name."""
+
+        provider_name = "mock"
+
+        def __init__(self, model_name: str) -> None:
+            self._model_name = model_name
+            self._inner = MockEmbeddingProvider()
+
+        async def embed_text(self, text: str) -> EmbeddingResult:
+            result = await self._inner.embed_text(text)
+            return EmbeddingResult(
+                vector=result.vector,
+                dimensions=result.dimensions,
+                usage={"model": self._model_name},
+            )
+
+        async def embed_texts(self, texts: list[str]) -> list[EmbeddingResult]:
+            return [await self.embed_text(text) for text in texts]
+
+    collections = InMemoryKnowledgeCollections()
+    chunks = CollectionVectorRepository(collections[KNOWLEDGE_CHUNKS_COLLECTION])
+    source_service = KnowledgeSourceService(
+        KnowledgeSourceRepository(collections),
+        KnowledgeDocumentRepository(collections),
+        chunks,
+    )
+    document_service = KnowledgeDocumentService(
+        KnowledgeDocumentRepository(collections), source_service, chunks
+    )
+    ingestion = KnowledgeIngestionService(
+        documents=document_service,
+        embedder=MockEmbeddingProvider(),
+        repository=chunks,
+    )
+    source = asyncio.run(
+        source_service.create_source(tenant_id="tenant-1", name="support")
+    )
+    document = asyncio.run(
+        document_service.create_document(
+            tenant_id="tenant-1",
+            source_id=source.id,
+            title="Refund",
+            raw_content="Customers may request a full refund within 30 days.",
+        )
+    )
+    asyncio.run(
+        ingestion.ingest_document(tenant_id="tenant-1", document_id=document.id)
+    )
+
+    resolver = MappingAgentKnowledgeResolver({"agent-1": [source.id]})
+    same = KnowledgeRetrieverService(
+        sources=resolver,
+        documents=document_service,
+        embedder=MockEmbeddingProvider(),
+        repository=chunks,
+    )
+    other = KnowledgeRetrieverService(
+        sources=resolver,
+        documents=document_service,
+        embedder=_RenamedMockEmbedder("a-different-model"),
+        repository=chunks,
+    )
+
+    same_hits = asyncio.run(
+        same.retrieve(tenant_id="tenant-1", agent_id="agent-1", query="refund", top_k=3)
+    )
+    other_hits = asyncio.run(
+        other.retrieve(tenant_id="tenant-1", agent_id="agent-1", query="refund", top_k=3)
+    )
+
+    assert [hit.document_id for hit in same_hits] == [document.id]
+    assert other_hits == []

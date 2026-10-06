@@ -24,6 +24,7 @@ from knowledge_service.retrieval import (
     MappingAgentKnowledgeResolver,
 )
 from knowledge_service.services import (
+    DEFAULT_EMBEDDING_BATCH_SIZE,
     KnowledgeDocumentService,
     KnowledgeIngestionService,
     KnowledgeSearchService,
@@ -38,6 +39,7 @@ MONGODB_URL_ENV_VAR = "MONGODB_URL"
 KNOWLEDGE_DATABASE_ENV_VAR = "KNOWLEDGE_DATABASE_NAME"
 KNOWLEDGE_STORAGE_DIR_ENV_VAR = "KNOWLEDGE_STORAGE_DIR"
 KNOWLEDGE_MAX_FILE_BYTES_ENV_VAR = "KNOWLEDGE_MAX_FILE_BYTES"
+EMBEDDING_BATCH_SIZE_ENV_VAR = "EMBEDDING_BATCH_SIZE"
 DEFAULT_STORAGE_DIR = "/data/knowledge_uploads"
 DEFAULT_MAX_FILE_BYTES = 10_000_000
 
@@ -209,10 +211,21 @@ class KnowledgeDatabase:
         self.document_service = KnowledgeDocumentService(
             document_repository, self.source_service, chunks
         )
+        try:
+            batch_size = int(
+                os.getenv(
+                    EMBEDDING_BATCH_SIZE_ENV_VAR, str(DEFAULT_EMBEDDING_BATCH_SIZE)
+                )
+            )
+        except ValueError:
+            batch_size = DEFAULT_EMBEDDING_BATCH_SIZE
+        if batch_size < 1:
+            batch_size = DEFAULT_EMBEDDING_BATCH_SIZE
         self.ingestion_service = KnowledgeIngestionService(
             documents=self.document_service,
             embedder=self._embedder,
             repository=chunks,
+            batch_size=batch_size,
         )
         self.retriever = KnowledgeRetrieverService(
             sources=self._agent_sources,
@@ -256,8 +269,11 @@ class KnowledgeDatabase:
         )
 
     async def close(self) -> None:
-        """Release the underlying persistence connection during shutdown."""
+        """Release persistence and the embedding provider's HTTP client."""
         await self._collections.close()
+        close_embedder = getattr(self._embedder, "close", None)
+        if close_embedder is not None:
+            await close_embedder()
 
 
 def create_in_memory_database(
